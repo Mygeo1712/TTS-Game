@@ -1,11 +1,11 @@
-
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { generateCrossword, Direction } from '../generator.js';
 
 const AdminPanel = ({ onSave, onCancel }) => {
   const [title, setTitle] = useState('');
   const [rows, setRows] = useState(Array(5).fill(0).map(() => ({ answer: '', clue: '' })));
   const [preview, setPreview] = useState(null);
+  const inputRefs = useRef({});
 
   const update = (i, f, v) => {
     const n = [...rows];
@@ -13,64 +13,130 @@ const AdminPanel = ({ onSave, onCancel }) => {
     setRows(n);
   };
 
+  const removeRow = (index) => {
+    if (rows.length <= 1) return;
+    const n = rows.filter((_, i) => i !== index);
+    setRows(n);
+  };
+
+  const handleKeyDown = (e, type, index) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (type === 'answer') {
+        inputRefs.current[`clue-${index}`]?.focus();
+      } else if (type === 'clue') {
+        const nextIndex = index + 1;
+        if (rows[nextIndex]) {
+          inputRefs.current[`answer-${nextIndex}`]?.focus();
+        } else {
+          const newRows = [...rows, { answer: '', clue: '' }];
+          setRows(newRows);
+          setTimeout(() => {
+            inputRefs.current[`answer-${nextIndex}`]?.focus();
+          }, 10);
+        }
+      }
+    }
+  };
+
   const handleGenerate = () => {
     const valid = rows.filter(r => r.answer.trim() && r.clue.trim());
     if (valid.length < 5) return alert("Minimal 5 kata.");
-    const result = generateCrossword(valid);
-    if (!result) return alert("Gagal menyusun grid. Coba ganti kata.");
 
-    const sorted = [...result.placed].sort((a,b) => a.row === b.row ? a.col - b.col : a.row - b.row);
+    let bestResult = null;
+    for (let i = 0; i < 100; i++) {
+      const attempt = generateCrossword(valid);
+      if (attempt && (!bestResult || attempt.placed.length > bestResult.placed.length)) {
+        bestResult = attempt;
+      }
+    }
+
+    if (!bestResult) return alert("Gagal menyusun grid. Coba ganti kata.");
+
     let n = 1;
     const posMap = {};
-    const numbered = result.placed.map(p => {
+    const numbered = bestResult.placed.map(p => {
       const k = `${p.row},${p.col}`;
       if (!posMap[k]) posMap[k] = n++;
       return { ...p, number: posMap[k] };
     });
-    setPreview({ ...result, placed: numbered });
+    setPreview({ ...bestResult, placed: numbered });
   };
 
-  return React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-10' }, [
-    React.createElement('div', { key: 'f', className: 'space-y-6' }, [
+  return React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-10 max-h-[calc(100vh-120px)]' }, [
+    // BAGIAN KIRI: INPUT FORM
+    React.createElement('div', { key: 'f', className: 'space-y-4 overflow-y-auto pr-2' }, [
       React.createElement('h2', { className: 'text-2xl font-black' }, 'Admin / Creator'),
       React.createElement('input', { 
-        placeholder: 'Judul...', value: title, onChange: e => setTitle(e.target.value),
-        className: 'w-full p-3 border-2 border-black font-bold card'
+        placeholder: 'Judul TTS...', value: title, onChange: e => setTitle(e.target.value),
+        className: 'w-full p-3 border-2 border-black font-bold card outline-none focus:ring-2 focus:ring-blue-400'
       }),
-      React.createElement('div', { className: 'space-y-2' }, rows.map((r, i) => React.createElement('div', { key: i, className: 'flex gap-2' }, [
-        React.createElement('input', { 
-          placeholder: 'KATA', value: r.answer, onChange: e => update(i, 'answer', e.target.value),
-          className: 'w-24 p-2 border-2 border-black font-bold uppercase'
-        }),
-        React.createElement('input', { 
-          placeholder: 'Clue...', value: r.clue, onChange: e => update(i, 'clue', e.target.value),
-          className: 'flex-1 p-2 border-2 border-black'
-        })
-      ]))),
-      React.createElement('div', { className: 'flex gap-2' }, [
-        React.createElement('button', { onClick: () => setRows([...rows, { answer: '', clue: '' }]), className: 'px-4 py-2 border-2 border-black font-bold' }, '+ Row'),
-        React.createElement('button', { onClick: handleGenerate, className: 'flex-1 py-2 bg-black text-white font-bold card' }, 'GENERATE')
+      React.createElement('div', { className: 'space-y-2' }, rows.map((r, i) => 
+        React.createElement('div', { key: i, className: 'flex gap-2 group' }, [
+          React.createElement('input', { 
+            ref: el => inputRefs.current[`answer-${i}`] = el,
+            placeholder: 'KATA', value: r.answer, 
+            onChange: e => update(i, 'answer', e.target.value),
+            onKeyDown: e => handleKeyDown(e, 'answer', i),
+            className: 'w-28 p-2 border-2 border-black font-bold uppercase focus:bg-yellow-50 outline-none text-sm'
+          }),
+          React.createElement('input', { 
+            ref: el => inputRefs.current[`clue-${i}`] = el,
+            placeholder: 'Petunjuk/Clue...', value: r.clue, 
+            onChange: e => update(i, 'clue', e.target.value),
+            onKeyDown: e => handleKeyDown(e, 'clue', i),
+            className: 'flex-1 p-2 border-2 border-black focus:bg-blue-50 outline-none text-sm'
+          }),
+          React.createElement('button', {
+            key: `del-${i}`,
+            onClick: () => removeRow(i),
+            className: 'px-3 text-red-500 font-bold border-2 border-transparent hover:border-red-500'
+          }, '✕')
+        ])
+      )),
+      React.createElement('div', { className: 'flex gap-2 sticky bottom-0 bg-white py-2' }, [
+        React.createElement('button', { 
+          onClick: () => setRows([...rows, { answer: '', clue: '' }]), 
+          className: 'px-4 py-2 border-2 border-black font-bold hover:bg-gray-100 text-sm' 
+        }, '+ Baris'),
+        React.createElement('button', { 
+          onClick: handleGenerate, 
+          className: 'flex-1 py-2 bg-black text-white font-bold card active:translate-y-0.5' 
+        }, 'GENERATE GRID')
       ])
     ]),
-    React.createElement('div', { key: 'p', className: 'bg-white p-6 card overflow-auto' }, 
+
+    // BAGIAN KANAN: PREVIEW GRID (Fixing visibility)
+    React.createElement('div', { key: 'p', className: 'bg-white p-4 card flex flex-col items-center justify-start overflow-auto min-h-[400px]' }, 
       preview ? [
         React.createElement('div', { 
-          key: 'g', className: 'inline-grid bg-black gap-px border-2 border-black mb-6',
-          style: { gridTemplateColumns: `repeat(${preview.width}, 30px)` }
+          key: 'g', 
+          className: 'inline-grid bg-black gap-px border-2 border-black shadow-xl mb-6',
+          style: { 
+            gridTemplateColumns: `repeat(${preview.width}, minmax(25px, 40px))`,
+            gridAutoRows: 'minmax(25px, 40px)', // Ensures cells stay square
+            width: 'fit-content'
+          }
         }, Array.from({ length: preview.height * preview.width }).map((_, i) => {
           const r = Math.floor(i / preview.width), c = i % preview.width;
-          const w = preview.placed.find(p => p.direction === Direction.ACROSS ? (p.row === r && c >= p.col && c < p.col + p.answer.length) : (p.col === c && r >= p.row && r < p.row + p.answer.length));
-          const ch = w ? (w.direction === Direction.ACROSS ? w.answer[c - w.col] : w.answer[r - w.row]) : null;
-          const s = preview.placed.find(p => p.row === r && p.col === c);
-          return React.createElement('div', { key: i, className: `grid-cell ${!ch ? 'black' : ''}` }, [
-            s && React.createElement('span', { key: 'n', className: 'grid-cell-number' }, s.number), ch
+          const word = preview.placed.find(p => p.direction === Direction.ACROSS ? (p.row === r && c >= p.col && c < p.col + p.answer.length) : (p.col === c && r >= p.row && r < p.row + p.answer.length));
+          const char = word ? (word.direction === Direction.ACROSS ? word.answer[c - word.col] : word.answer[r - word.row]) : null;
+          const start = preview.placed.find(p => p.row === r && p.col === c);
+          
+          return React.createElement('div', { 
+            key: `cell-${i}`, 
+            className: `relative flex items-center justify-center font-black uppercase ${!char ? 'bg-black' : 'bg-white text-black'}`,
+            style: { width: '100%', height: '100%' }
+          }, [
+            start && React.createElement('span', { key: 'num', className: 'absolute top-0.5 left-0.5 text-[8px] leading-none z-10' }, start.number),
+            char && React.createElement('span', { className: 'text-sm sm:text-base' }, char)
           ]);
         })),
         React.createElement('button', { 
           onClick: () => onSave({ title: title || 'Tanpa Judul', width: preview.width, height: preview.height, difficulty: 'Medium', placed: preview.placed }),
-          className: 'w-full py-3 bg-green-600 text-white font-black card'
-        }, 'PUBLISH')
-      ] : React.createElement('p', { className: 'text-center py-20 opacity-30 italic' }, 'Preview muncul di sini')
+          className: 'w-full py-3 bg-green-600 text-white font-black card hover:bg-green-700 transition-colors shrink-0'
+        }, 'SIMPAN KE DATABASE')
+      ] : React.createElement('p', { className: 'text-center opacity-30 italic mt-20' }, 'Klik Generate untuk melihat hasil')
     )
   ]);
 };

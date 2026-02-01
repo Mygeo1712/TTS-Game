@@ -1,4 +1,3 @@
-
 export const Direction = { ACROSS: 'ACROSS', DOWN: 'DOWN' };
 
 /**
@@ -15,8 +14,8 @@ export const generateCrossword = (inputWords) => {
   let bestResult = null;
   let maxPlaced = -1;
 
-  // Coba 20 iterasi untuk hasil terbaik
-  for (let attempt = 0; attempt < 20; attempt++) {
+  // Mencoba 100 iterasi untuk hasil maksimal (sebelumnya hanya 20)
+  for (let attempt = 0; attempt < 100; attempt++) {
     const placed = [];
     const grid = new Map();
 
@@ -63,10 +62,12 @@ export const generateCrossword = (inputWords) => {
       }
     };
 
-    place(words[0], 0, 0, Direction.ACROSS);
+    // Acak urutan untuk iterasi selain pertama agar hasil bervariasi
+    const wordsToProcess = attempt === 0 ? words : [...words].sort(() => Math.random() - 0.5);
+    place(wordsToProcess[0], 0, 0, Direction.ACROSS);
 
-    for (let i = 1; i < words.length; i++) {
-      const current = words[i];
+    for (let i = 1; i < wordsToProcess.length; i++) {
+      const current = wordsToProcess[i];
       let found = false;
       for (const p of placed) {
         if (found) break;
@@ -90,17 +91,26 @@ export const generateCrossword = (inputWords) => {
 
     if (placed.length > maxPlaced) {
       maxPlaced = placed.length;
-      let minR = 0, maxR = 0, minC = 0, maxC = 0;
+      let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+      
       placed.forEach(p => {
         minR = Math.min(minR, p.row);
         minC = Math.min(minC, p.col);
         maxR = Math.max(maxR, p.direction === Direction.DOWN ? p.row + p.answer.length - 1 : p.row);
         maxC = Math.max(maxC, p.direction === Direction.ACROSS ? p.col + p.answer.length - 1 : p.col);
       });
+
+      // PERBAIKAN: Tambahkan margin 1 agar huruf di ujung tidak terpotong border
+      const margin = 1; 
+
       bestResult = {
-        placed: placed.map(p => ({ ...p, row: p.row - minR, col: p.col - minC })),
-        width: maxC - minC + 1,
-        height: maxR - minR + 1
+        placed: placed.map(p => ({ 
+          ...p, 
+          row: p.row - minR + margin, 
+          col: p.col - minC + margin 
+        })),
+        width: maxC - minC + 1 + (margin * 2),
+        height: maxR - minR + 1 + (margin * 2)
       };
     }
   }
