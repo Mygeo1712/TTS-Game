@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { generateCrossword, Direction } from '../generator.js';
 
 const AdminPanel = ({ onSave, onCancel }) => {
@@ -6,6 +6,20 @@ const AdminPanel = ({ onSave, onCancel }) => {
   const [rows, setRows] = useState(Array(5).fill(0).map(() => ({ answer: '', clue: '' })));
   const [preview, setPreview] = useState(null);
   const inputRefs = useRef({});
+
+  // --- FITUR LANJUTAN: SIMPAN DRAF OTOMATIS ---
+  useEffect(() => {
+    const savedDraft = localStorage.getItem('tts-admin-draft');
+    if (savedDraft) {
+      const { title: t, rows: r } = JSON.parse(savedDraft);
+      setTitle(t);
+      setRows(r);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('tts-admin-draft', JSON.stringify({ title, rows }));
+  }, [title, rows]);
 
   const update = (i, f, v) => {
     const n = [...rows];
@@ -63,13 +77,18 @@ const AdminPanel = ({ onSave, onCancel }) => {
     setPreview({ ...bestResult, placed: numbered });
   };
 
+  const handlePublish = () => {
+    onSave({ title: title || 'Tanpa Judul', width: preview.width, height: preview.height, difficulty: 'Medium', placed: preview.placed });
+    localStorage.removeItem('tts-admin-draft'); // Bersihkan draf setelah publish
+  };
+
   return React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-10 max-h-[calc(100vh-120px)]' }, [
     // BAGIAN KIRI: INPUT FORM
     React.createElement('div', { key: 'f', className: 'space-y-4 overflow-y-auto pr-2' }, [
       React.createElement('h2', { className: 'text-2xl font-black' }, 'Admin / Creator'),
       React.createElement('input', { 
         placeholder: 'Judul TTS...', value: title, onChange: e => setTitle(e.target.value),
-        className: 'w-full p-3 border-2 border-black font-bold card outline-none focus:ring-2 focus:ring-blue-400'
+        className: 'w-full p-3 border-2 border-black font-bold card outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white'
       }),
       React.createElement('div', { className: 'space-y-2' }, rows.map((r, i) => 
         React.createElement('div', { key: i, className: 'flex gap-2 group' }, [
@@ -78,14 +97,14 @@ const AdminPanel = ({ onSave, onCancel }) => {
             placeholder: 'KATA', value: r.answer, 
             onChange: e => update(i, 'answer', e.target.value),
             onKeyDown: e => handleKeyDown(e, 'answer', i),
-            className: 'w-28 p-2 border-2 border-black font-bold uppercase focus:bg-yellow-50 outline-none text-sm'
+            className: 'w-28 p-2 border-2 border-black font-bold uppercase focus:bg-yellow-50 outline-none text-sm dark:bg-gray-700'
           }),
           React.createElement('input', { 
             ref: el => inputRefs.current[`clue-${i}`] = el,
             placeholder: 'Petunjuk/Clue...', value: r.clue, 
             onChange: e => update(i, 'clue', e.target.value),
             onKeyDown: e => handleKeyDown(e, 'clue', i),
-            className: 'flex-1 p-2 border-2 border-black focus:bg-blue-50 outline-none text-sm'
+            className: 'flex-1 p-2 border-2 border-black focus:bg-blue-50 outline-none text-sm dark:bg-gray-700'
           }),
           React.createElement('button', {
             key: `del-${i}`,
@@ -94,10 +113,10 @@ const AdminPanel = ({ onSave, onCancel }) => {
           }, '✕')
         ])
       )),
-      React.createElement('div', { className: 'flex gap-2 sticky bottom-0 bg-white py-2' }, [
+      React.createElement('div', { className: 'flex gap-2 sticky bottom-0 bg-white dark:bg-gray-900 py-2' }, [
         React.createElement('button', { 
           onClick: () => setRows([...rows, { answer: '', clue: '' }]), 
-          className: 'px-4 py-2 border-2 border-black font-bold hover:bg-gray-100 text-sm' 
+          className: 'px-4 py-2 border-2 border-black font-bold hover:bg-gray-100 text-sm dark:text-white' 
         }, '+ Baris'),
         React.createElement('button', { 
           onClick: handleGenerate, 
@@ -106,15 +125,15 @@ const AdminPanel = ({ onSave, onCancel }) => {
       ])
     ]),
 
-    // BAGIAN KANAN: PREVIEW GRID (Fixing visibility)
-    React.createElement('div', { key: 'p', className: 'bg-white p-4 card flex flex-col items-center justify-start overflow-auto min-h-[400px]' }, 
+    // BAGIAN KANAN: PREVIEW GRID
+    React.createElement('div', { key: 'p', className: 'bg-white dark:bg-gray-800 p-4 card flex flex-col items-center justify-start overflow-auto min-h-[400px]' }, 
       preview ? [
         React.createElement('div', { 
           key: 'g', 
           className: 'inline-grid bg-black gap-px border-2 border-black shadow-xl mb-6',
           style: { 
             gridTemplateColumns: `repeat(${preview.width}, minmax(25px, 40px))`,
-            gridAutoRows: 'minmax(25px, 40px)', // Ensures cells stay square
+            gridAutoRows: 'minmax(25px, 40px)',
             width: 'fit-content'
           }
         }, Array.from({ length: preview.height * preview.width }).map((_, i) => {
@@ -133,10 +152,10 @@ const AdminPanel = ({ onSave, onCancel }) => {
           ]);
         })),
         React.createElement('button', { 
-          onClick: () => onSave({ title: title || 'Tanpa Judul', width: preview.width, height: preview.height, difficulty: 'Medium', placed: preview.placed }),
+          onClick: handlePublish,
           className: 'w-full py-3 bg-green-600 text-white font-black card hover:bg-green-700 transition-colors shrink-0'
         }, 'SIMPAN KE DATABASE')
-      ] : React.createElement('p', { className: 'text-center opacity-30 italic mt-20' }, 'Klik Generate untuk melihat hasil')
+      ] : React.createElement('p', { className: 'text-center opacity-30 italic mt-20 dark:text-white' }, 'Klik Generate untuk melihat hasil')
     )
   ]);
 };

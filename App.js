@@ -7,9 +7,23 @@ const App = () => {
   const [puzzles, setPuzzles] = useState([]);
   const [activePuzzle, setActivePuzzle] = useState(null);
   const [loading, setLoading] = useState(false);
-  
-  // Fitur Mode Gelap
   const [darkMode, setDarkMode] = useState(localStorage.getItem('darkMode') === 'true');
+
+  // --- FITUR LANJUTAN: LOGIN CREATOR ---
+  const handleAdminAccess = () => {
+    const isAuth = sessionStorage.getItem('isAdminAuthenticated');
+    if (isAuth) {
+      window.location.hash = 'admin';
+    } else {
+      const password = prompt("Masukkan Password Admin: \n(Petunjuk: Password default adalah memento2026)");
+      if (password === "memento2026") { // Password default simulasi
+        sessionStorage.setItem('isAdminAuthenticated', 'true');
+        window.location.hash = 'admin';
+      } else {
+        alert("Password Salah! Akses Ditolak.");
+      }
+    }
+  };
 
   useEffect(() => {
     if (darkMode) {
@@ -52,6 +66,11 @@ const App = () => {
         }
         setLoading(false);
       } else if (hash === 'admin') {
+        // Cek otentikasi saat hash berubah ke admin
+        if (!sessionStorage.getItem('isAdminAuthenticated')) {
+          window.location.hash = '';
+          return;
+        }
         setView('Admin');
       } else {
         setView('Home');
@@ -81,13 +100,12 @@ const App = () => {
       React.createElement('div', { className: 'max-w-5xl mx-auto flex justify-between items-center' }, [
         React.createElement('h1', { key: 'l', className: 'text-xl font-black cursor-pointer dark:text-white', onClick: () => window.location.hash = '' }, 'TTS MASTER'),
         React.createElement('div', { className: 'flex gap-2' }, [
-          // Tombol Dark Mode
           React.createElement('button', { 
             onClick: () => setDarkMode(!darkMode), 
             className: 'p-1.5 border-2 border-black dark:border-white rounded-md hover:bg-yellow-400 transition-all' 
           }, darkMode ? '☀️' : '🌙'),
           React.createElement('button', { 
-            onClick: () => window.location.hash = 'admin', 
+            onClick: handleAdminAccess, // Gunakan fungsi proteksi login
             className: 'bg-black text-white dark:bg-white dark:text-black px-4 py-1.5 font-bold text-xs card shadow-md' 
           }, 'BUAT TTS')
         ])
@@ -99,7 +117,7 @@ const App = () => {
       !loading && view === 'Home' && React.createElement('div', { key: 'h', className: 'animate-in fade-in slide-in-from-bottom-2 duration-500' }, [
         React.createElement('div', { className: 'flex justify-between items-center mb-10' }, [
           React.createElement('div', null, [
-            React.createElement('h2', { className: 'text-4xl font-black' }, 'Pilih Puzzle'),
+            React.createElement('h2', { className: 'text-4xl font-black' }, 'Pilih Teka-Teki'),
             React.createElement('p', { className: 'text-gray-500 dark:text-gray-400 font-medium mt-1' }, 'Tantang dirimu dengan berbagai koleksi TTS Master.')
           ]),
         ]),
@@ -109,7 +127,7 @@ const App = () => {
             React.createElement('div', { className: 'text-6xl mb-4' }, '🧩'),
             React.createElement('h3', { className: 'text-xl font-bold text-gray-400' }, 'Belum ada teka-teki yang dibuat'),
             React.createElement('button', {
-              onClick: () => window.location.hash = 'admin',
+              onClick: handleAdminAccess,
               className: 'mt-6 bg-black text-white dark:bg-white dark:text-black px-8 py-3 font-black card transition-transform active:scale-95'
             }, 'MULAI BUAT SEKARANG')
           ])

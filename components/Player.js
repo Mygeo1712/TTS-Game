@@ -12,15 +12,30 @@ const Player = ({ puzzle, onBack }) => {
   // --- STATE FITUR TAMBAHAN ---
   const [hintsUsed, setHintsUsed] = useState(0);
   const [showValidation, setShowValidation] = useState(false);
+  const [leaderboard, setLeaderboard] = useState([]);
   const maxHints = 3;
 
   const inputRefs = useRef(new Map());
+  const timerRef = useRef(null); // Ref untuk mengontrol stop timer
 
-  // 1. Inisialisasi Grid, Timer & Muat Progress dari localStorage
+  // --- FITUR LANJUTAN: EXPORT PDF ---
+  const exportToPDF = () => {
+    window.print();
+  };
+
+  // --- FITUR LANJUTAN: LEADERBOARD LOKAL ---
+  const updateLeaderboard = (finalTime) => {
+    const currentBoard = JSON.parse(localStorage.getItem(`leaderboard-${puzzle.id}`) || '[]');
+    const newEntry = { time: finalTime, date: new Date().toLocaleDateString() };
+    const newBoard = [...currentBoard, newEntry].sort((a, b) => a.time - b.time).slice(0, 5);
+    localStorage.setItem(`leaderboard-${puzzle.id}`, JSON.stringify(newBoard));
+    setLeaderboard(newBoard);
+  };
+
   useEffect(() => {
     if (!puzzle) return;
     
-    // Cek apakah ada progress tersimpan di browser
+    // LOAD PROGRESS: Selalu muat dari nol jika tidak ada, namun sistem ini akan kita bersihkan saat user klik KELUAR
     const savedProgress = localStorage.getItem(`progress-${puzzle.id}`);
     if (savedProgress) {
       setGrid(JSON.parse(savedProgress));
@@ -28,21 +43,29 @@ const Player = ({ puzzle, onBack }) => {
       setGrid(Array.from({ length: puzzle.height }, () => Array(puzzle.width).fill('')));
     }
 
+    setLeaderboard(JSON.parse(localStorage.getItem(`leaderboard-${puzzle.id}`) || '[]'));
+
     const first = puzzle.words[0];
-    if (first) setCursor({ r: first.row, c: first.col });
+    if (first) {
+      setCursor({ r: first.row, c: first.col });
+      setDir(first.direction);
+    }
     
-    const interval = setInterval(() => setTimer(t => t + 1), 1000);
-    return () => clearInterval(interval);
+    // TIMER START
+    timerRef.current = setInterval(() => {
+      setTimer(t => t + 1);
+    }, 1000);
+
+    return () => clearInterval(timerRef.current);
   }, [puzzle]);
 
-  // 2. Simpan Progress ke localStorage setiap kali grid berubah
+  // Simpan progress ke storage selama permainan berlangsung
   useEffect(() => {
-    if (grid.length > 0 && puzzle?.id) {
+    if (grid.length > 0 && puzzle?.id && !win) {
       localStorage.setItem(`progress-${puzzle.id}`, JSON.stringify(grid));
     }
-  }, [grid, puzzle]);
+  }, [grid, puzzle, win]);
 
-  // Auto Focus saat cursor berubah
   useEffect(() => {
     const key = `${cursor.r}-${cursor.c}`;
     const targetEl = inputRefs.current.get(key);
@@ -51,7 +74,6 @@ const Player = ({ puzzle, onBack }) => {
     }
   }, [cursor]);
 
-  // --- LOGIKA HELPER ---
   const getTargetLetter = (r, c) => {
     const w = puzzle.words.find(p => 
       p.direction === Direction.ACROSS 
@@ -62,7 +84,6 @@ const Player = ({ puzzle, onBack }) => {
     return w.direction === Direction.ACROSS ? w.answer[c - w.col] : w.answer[r - w.row];
   };
 
-  // Kalkulasi statistik progress
   const stats = (() => {
     if (!puzzle) return { filled: 0, correct: 0, total: 0, percent: 0 };
     let filled = 0, correct = 0, total = 0;
@@ -81,7 +102,18 @@ const Player = ({ puzzle, onBack }) => {
     return { filled, correct, total, percent: total > 0 ? Math.round((filled / total) * 100) : 0 };
   })();
 
-  // --- HANDLER INPUT & NAVIGASI ---
+  const handleCellSelect = (r, c) => {
+    setCursor({ r, c });
+    const belongsToAcross = puzzle.words.some(w => w.direction === Direction.ACROSS && w.row === r && c >= w.col && c < w.col + w.answer.length);
+    const belongsToDown = puzzle.words.some(w => w.direction === Direction.DOWN && w.col === c && r >= w.row && r < w.row + w.answer.length);
+
+    if (belongsToDown && !belongsToAcross) {
+      setDir(Direction.DOWN);
+    } else if (belongsToAcross && !belongsToDown) {
+      setDir(Direction.ACROSS);
+    }
+  };
+
   const handleInput = (r, c, v) => {
     if (win) return;
     const char = v.toUpperCase().slice(-1);
@@ -98,6 +130,7 @@ const Player = ({ puzzle, onBack }) => {
       if (getTargetLetter(nextR, nextC)) setCursor({ r: nextR, c: nextC });
     }
 
+    // CEK KEMENANGAN OTOMATIS
     let isWinNow = true;
     for(let i=0; i<puzzle.height; i++) {
       for(let j=0; j<puzzle.width; j++) {
@@ -105,10 +138,24 @@ const Player = ({ puzzle, onBack }) => {
         if (t && nextGrid[i][j] !== t) isWinNow = false;
       }
     }
-    if (isWinNow) {
-      setWin(true);
-      localStorage.removeItem(`progress-${puzzle.id}`); // Hapus jika sudah menang
+    
+    if (isWinNow && !win) {
+      handleFinishGame();
     }
+  };
+
+  // LOGIKA BERHENTI: Stop timer dan catat skor
+  const handleFinishGame = () => {
+    clearInterval(timerRef.current); // Stop waktu tepat saat selesai
+    setWin(true);
+    updateLeaderboard(timer);
+    localStorage.removeItem(`progress-${puzzle.id}`); // Hapus progress karena sudah selesai
+  };
+
+  // LOGIKA KELUAR: Reset semua untuk sesi berikutnya
+  const handleExit = () => {
+    localStorage.removeItem(`progress-${puzzle.id}`);
+    onBack();
   };
 
   const handleKeyDown = (e, r, c) => {
@@ -123,11 +170,12 @@ const Player = ({ puzzle, onBack }) => {
       if (e.key === 'ArrowDown') nr++;
       if (e.key === 'ArrowLeft') nc--;
       if (e.key === 'ArrowRight') nc++;
-      if (getTargetLetter(nr, nc)) setCursor({ r: nr, c: nc });
+      if (getTargetLetter(nr, nc)) {
+        handleCellSelect(nr, nc);
+      }
     }
   };
 
-  // --- ACTION BUTTONS ---
   const useHint = () => {
     if (hintsUsed >= maxHints) return alert("Hint habis!");
     const emptyCells = [];
@@ -143,7 +191,7 @@ const Player = ({ puzzle, onBack }) => {
     nextGrid[randomCell.r][randomCell.c] = correctLetter;
     setGrid(nextGrid);
     setHintsUsed(h => h + 1);
-    setCursor(randomCell);
+    handleCellSelect(randomCell.r, randomCell.c);
   };
 
   const resetPuzzle = () => {
@@ -160,26 +208,26 @@ const Player = ({ puzzle, onBack }) => {
 
   const activeClue = puzzle.words.find(w => w.direction === dir && (dir === Direction.ACROSS ? (w.row === cursor.r && cursor.c >= w.col && cursor.c < w.col + w.answer.length) : (w.col === cursor.c && cursor.r >= w.row && cursor.r < w.row + w.answer.length)));
 
-  return React.createElement('div', { className: 'space-y-4 max-h-screen flex flex-col p-2 animate-in fade-in duration-700' }, [
+  return React.createElement('div', { className: 'space-y-4 max-h-screen flex flex-col p-2 animate-in fade-in duration-700 print:bg-white print:text-black' }, [
     // Header
-    React.createElement('div', { key: 'h', className: 'flex flex-wrap justify-between items-center gap-2 bg-white dark:bg-gray-800 dark:border-white p-3 card shadow-md shrink-0 transition-colors' }, [
+    React.createElement('div', { key: 'h', className: 'flex flex-wrap justify-between items-center gap-2 bg-white dark:bg-gray-800 dark:border-white p-3 card shadow-md shrink-0 transition-colors print:shadow-none print:border-none' }, [
       React.createElement('div', null, [
         React.createElement('h2', { className: 'text-lg font-black uppercase dark:text-white' }, puzzle.title),
-        React.createElement('div', { className: 'flex gap-2 mt-1' }, [
-          React.createElement('span', { className: 'text-[9px] font-bold bg-black text-white px-2 py-0.5 rounded' }, `⏱️ ${fmtTime(timer)}`),
+        React.createElement('div', { className: 'flex gap-2 mt-1 print:hidden' }, [
+          React.createElement('span', { className: `text-[9px] font-bold ${win ? 'bg-green-600' : 'bg-black'} text-white px-2 py-0.5 rounded` }, `⏱️ ${fmtTime(timer)}`),
           React.createElement('span', { className: 'text-[9px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded' }, `💡 HINT: ${maxHints - hintsUsed}`),
         ])
       ]),
-      React.createElement('div', { className: 'flex gap-1.5' }, [
+      React.createElement('div', { className: 'flex gap-1.5 print:hidden' }, [
+        React.createElement('button', { onClick: exportToPDF, className: 'px-3 py-1 bg-blue-500 text-white font-black text-[10px] card' }, '📑 PDF'),
         React.createElement('button', { onClick: useHint, className: 'px-3 py-1 bg-yellow-400 font-black text-[10px] card hover:bg-yellow-300' }, 'HINT'),
         React.createElement('button', { onClick: () => setShowValidation(true), className: 'px-3 py-1 bg-green-500 text-white font-black text-[10px] card hover:bg-green-400' }, 'CHECK'),
-        React.createElement('button', { onClick: resetPuzzle, className: 'px-3 py-1 bg-gray-200 font-black text-[10px] card hover:bg-gray-100' }, 'RESET'),
-        React.createElement('button', { onClick: onBack, className: 'px-3 py-1 bg-black text-white font-black text-[10px] card hover:opacity-80' }, 'KELUAR')
+        React.createElement('button', { onClick: handleExit, className: 'px-3 py-1 bg-black text-white font-black text-[10px] card hover:opacity-80' }, 'KELUAR')
       ])
     ]),
 
     // Progress Bar
-    React.createElement('div', { key: 'pb', className: 'w-full h-3 bg-gray-200 dark:bg-gray-700 border border-black overflow-hidden shrink-0' }, 
+    React.createElement('div', { key: 'pb', className: 'w-full h-3 bg-gray-200 dark:bg-gray-700 border border-black overflow-hidden shrink-0 print:hidden' }, 
       React.createElement('div', { 
         className: 'h-full bg-blue-500 transition-all duration-1000 ease-out flex items-center justify-center text-[7px] font-black text-white',
         style: { width: `${stats.percent}%` }
@@ -188,10 +236,9 @@ const Player = ({ puzzle, onBack }) => {
 
     // Main Game Area
     React.createElement('div', { key: 'g', className: 'flex flex-col lg:flex-row gap-4 overflow-hidden flex-1' }, [
-      // Grid Section
-      React.createElement('div', { className: 'flex-1 flex justify-center items-center bg-slate-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden p-2 transition-colors' }, 
+      React.createElement('div', { className: 'flex-1 flex justify-center items-center bg-slate-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden p-2 transition-colors print:bg-white' }, 
         React.createElement('div', { 
-          className: 'inline-grid bg-gray-900 gap-px border-2 border-black p-1 shadow-2xl',
+          className: 'inline-grid bg-gray-900 gap-px border-2 border-black p-1 shadow-2xl print:shadow-none',
           style: { 
             gridTemplateColumns: `repeat(${puzzle.width}, minmax(15px, 1fr))`,
             width: '100%',
@@ -213,43 +260,44 @@ const Player = ({ puzzle, onBack }) => {
             key: i, 
             className: `grid-cell ${!target ? 'bg-gray-900' : 'bg-white'} ${active ? 'ring-2 ring-blue-500 z-10' : ''} ${statusClass} relative overflow-hidden transition-all duration-200`,
             style: { width: '100%', height: '100%' },
-            onClick: () => target && setCursor({ r, c })
+            onClick: () => target && handleCellSelect(r, c)
           }, [
-            start && React.createElement('span', { key: 'n', className: 'grid-cell-number text-[6px] sm:text-[8px] font-black z-10' }, start.number),
+            start && React.createElement('span', { key: 'n', className: 'grid-cell-number text-[6px] sm:text-[8px] font-black z-10 print:text-black' }, start.number),
             target && React.createElement('input', {
               key: 'in',
               ref: (el) => { if (el) inputRefs.current.set(`${r}-${c}`, el); else inputRefs.current.delete(`${r}-${c}`); },
-              className: 'w-full h-full text-center font-black text-xs sm:text-base uppercase focus:outline-none bg-transparent p-0 dark:text-black',
+              className: 'w-full h-full text-center font-black text-xs sm:text-base uppercase focus:outline-none bg-transparent p-0 dark:text-black print:text-black',
               style: { border: 'none' },
               value: grid[r]?.[c] || '', 
               onChange: e => handleInput(r, c, e.target.value),
               onKeyDown: e => handleKeyDown(e, r, c),
-              onFocus: () => {
-                setCursor({ r, c });
-                const hasAcross = puzzle.words.some(w => w.direction === Direction.ACROSS && w.row === r && c >= w.col && c < w.col + w.answer.length);
-                const hasDown = puzzle.words.some(w => w.direction === Direction.DOWN && w.col === c && r >= w.row && r < w.row + w.answer.length);
-                if (hasAcross && !hasDown) setDir(Direction.ACROSS);
-                if (hasDown && !hasAcross) setDir(Direction.DOWN);
-              }
+              onFocus: () => handleCellSelect(r, c)
             })
           ]);
         }))
       ),
 
-      // Sidebar Clues
-      React.createElement('div', { className: 'w-full lg:w-64 flex flex-col gap-2 shrink-0' }, [
-        React.createElement('div', { className: 'p-3 bg-white dark:bg-gray-800 dark:text-white card border-l-4 border-l-blue-600 shrink-0 shadow-sm' }, [
-          React.createElement('h4', { className: 'text-[9px] font-black uppercase opacity-40 tracking-wider' }, 'SEDANG DIISI'),
-          React.createElement('p', { className: 'font-bold text-[11px]' }, activeClue ? `${activeClue.number}. ${activeClue.clue}` : 'Klik kotak')
+      // Sidebar
+      React.createElement('div', { className: 'w-full lg:w-64 flex flex-col gap-2 shrink-0 print:block' }, [
+        leaderboard.length > 0 && React.createElement('div', { className: 'p-2 bg-yellow-50 dark:bg-yellow-900/20 card border-l-4 border-yellow-400 print:hidden' }, [
+            React.createElement('h4', { className: 'text-[10px] font-black uppercase mb-1' }, '🏆 Skor Tercepat'),
+            leaderboard.map((l, idx) => React.createElement('div', { key: idx, className: 'flex justify-between text-[9px] font-bold' }, [
+              React.createElement('span', null, `${idx+1}. ${l.date}`),
+              React.createElement('span', null, fmtTime(l.time))
+            ]))
+        ]),
+        React.createElement('div', { className: 'p-3 bg-white dark:bg-gray-800 dark:text-white card border-l-4 border-l-blue-600 shrink-0 shadow-sm print:border-none' }, [
+          React.createElement('h4', { className: 'text-[9px] font-black uppercase opacity-40 tracking-wider print:hidden' }, 'SEDANG DIISI'),
+          React.createElement('p', { className: 'font-bold text-[11px] print:hidden' }, activeClue ? `${activeClue.number}. ${activeClue.clue}` : 'Klik kotak')
         ]),
         React.createElement('div', { className: 'flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar' }, 
-          ['ACROSS', 'DOWN'].map(d => React.createElement('div', { key: d, className: 'bg-white dark:bg-gray-800 dark:text-white p-2 card' }, [
+          ['ACROSS', 'DOWN'].map(d => React.createElement('div', { key: d, className: 'bg-white dark:bg-gray-800 dark:text-white p-2 card print:shadow-none' }, [
             React.createElement('h5', { className: 'text-[9px] font-black border-b border-black dark:border-white mb-1 pb-0.5' }, d === 'ACROSS' ? 'MENDATAR' : 'MENURUN'),
             React.createElement('ul', { className: 'text-[9px] space-y-1' }, 
               puzzle.words.filter(w => w.direction === d).map(w => React.createElement('li', {
                 key: w.number, 
-                className: `cursor-pointer p-1 rounded transition-all ${cursor.r === w.row && cursor.c === w.col && dir === d ? 'bg-blue-100 dark:bg-blue-900 font-bold' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`,
-                onClick: () => { setCursor({ r: w.row, c: w.col }); setDir(d); }
+                className: `cursor-pointer p-1 rounded ${cursor.r === w.row && cursor.c === w.col ? 'bg-blue-100 dark:bg-blue-900 font-bold' : ''}`,
+                onClick: () => { handleCellSelect(w.row, w.col); setDir(d); }
               }, `${w.number}. ${w.clue}`))
             )
           ]))
@@ -258,11 +306,11 @@ const Player = ({ puzzle, onBack }) => {
     ]),
 
     // Modal Kemenangan
-    win && React.createElement('div', { className: 'fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4 backdrop-blur-sm' }, 
+    win && React.createElement('div', { className: 'fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4 backdrop-blur-sm print:hidden' }, 
       React.createElement('div', { className: 'text-center p-6 card bg-white dark:bg-gray-800 dark:text-white max-w-xs w-full shadow-lg animate-bounce' }, [
         React.createElement('h2', { className: 'text-2xl font-black mb-2 italic' }, 'MENANG!'),
-        React.createElement('p', { className: 'text-xs font-bold mb-4' }, `Selesai dalam ${fmtTime(timer)}`),
-        React.createElement('button', { onClick: onBack, className: 'w-full py-3 bg-black text-white font-black uppercase card text-xs' }, 'KEMBALI KE MENU')
+        React.createElement('p', { className: 'text-xs font-bold mb-4' }, `Rekor Waktu: ${fmtTime(timer)}`),
+        React.createElement('button', { onClick: handleExit, className: 'w-full py-3 bg-black text-white font-black uppercase card text-xs' }, 'KEMBALI KE MENU')
       ])
     )
   ]);
