@@ -1,0 +1,6 @@
+
+{
+  "name": "TTS Master - Crossword Creator & Player",
+  "description": "A full-stack crossword puzzle application with an automatic grid generator, admin panel, and interactive player.",
+  "requestFramePermissions": []
+}

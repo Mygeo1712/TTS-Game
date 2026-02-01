@@ -1,0 +1,48 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS MASTER</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f9fafb; color: #111827; }
+        .grid-cell {
+            aspect-ratio: 1/1;
+            display: flex; align-items: center; justify-content: center;
+            position: relative; background: #fff; border: 1px solid #000;
+        }
+        .grid-cell.black { background: #111827; border-color: #111827; }
+        .grid-cell-number {
+            position: absolute; top: 1px; left: 2px;
+            font-size: 0.55rem; font-weight: 700; color: #4b5563;
+        }
+        .grid-cell input {
+            width: 100%; height: 100%; text-align: center;
+            font-size: 1.1rem; font-weight: 800; text-transform: uppercase;
+            background: transparent; border: none; outline: none;
+        }
+        .active-cell { background-color: #dbeafe !important; }
+        .active-word { background-color: #eff6ff !important; }
+        .card { border: 2px solid #000; box-shadow: 3px 3px 0px 0px #000; }
+    </style>
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="index.js"></script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
