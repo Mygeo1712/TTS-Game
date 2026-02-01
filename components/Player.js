@@ -16,15 +16,31 @@ const Player = ({ puzzle, onBack }) => {
 
   const inputRefs = useRef(new Map());
 
-  // Inisialisasi Grid & Timer
+  // 1. Inisialisasi Grid, Timer & Muat Progress dari localStorage
   useEffect(() => {
     if (!puzzle) return;
-    setGrid(Array.from({ length: puzzle.height }, () => Array(puzzle.width).fill('')));
+    
+    // Cek apakah ada progress tersimpan di browser
+    const savedProgress = localStorage.getItem(`progress-${puzzle.id}`);
+    if (savedProgress) {
+      setGrid(JSON.parse(savedProgress));
+    } else {
+      setGrid(Array.from({ length: puzzle.height }, () => Array(puzzle.width).fill('')));
+    }
+
     const first = puzzle.words[0];
     if (first) setCursor({ r: first.row, c: first.col });
+    
     const interval = setInterval(() => setTimer(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, [puzzle]);
+
+  // 2. Simpan Progress ke localStorage setiap kali grid berubah
+  useEffect(() => {
+    if (grid.length > 0 && puzzle?.id) {
+      localStorage.setItem(`progress-${puzzle.id}`, JSON.stringify(grid));
+    }
+  }, [grid, puzzle]);
 
   // Auto Focus saat cursor berubah
   useEffect(() => {
@@ -89,7 +105,10 @@ const Player = ({ puzzle, onBack }) => {
         if (t && nextGrid[i][j] !== t) isWinNow = false;
       }
     }
-    if (isWinNow) setWin(true);
+    if (isWinNow) {
+      setWin(true);
+      localStorage.removeItem(`progress-${puzzle.id}`); // Hapus jika sudah menang
+    }
   };
 
   const handleKeyDown = (e, r, c) => {
@@ -133,6 +152,7 @@ const Player = ({ puzzle, onBack }) => {
       setTimer(0);
       setHintsUsed(0);
       setShowValidation(false);
+      localStorage.removeItem(`progress-${puzzle.id}`);
     }
   };
 
@@ -140,11 +160,11 @@ const Player = ({ puzzle, onBack }) => {
 
   const activeClue = puzzle.words.find(w => w.direction === dir && (dir === Direction.ACROSS ? (w.row === cursor.r && cursor.c >= w.col && cursor.c < w.col + w.answer.length) : (w.col === cursor.c && cursor.r >= w.row && cursor.r < w.row + w.answer.length)));
 
-  return React.createElement('div', { className: 'space-y-4 max-h-screen flex flex-col p-2' }, [
+  return React.createElement('div', { className: 'space-y-4 max-h-screen flex flex-col p-2 animate-in fade-in duration-700' }, [
     // Header
-    React.createElement('div', { key: 'h', className: 'flex flex-wrap justify-between items-center gap-2 bg-white p-3 card shadow-md shrink-0' }, [
+    React.createElement('div', { key: 'h', className: 'flex flex-wrap justify-between items-center gap-2 bg-white dark:bg-gray-800 dark:border-white p-3 card shadow-md shrink-0 transition-colors' }, [
       React.createElement('div', null, [
-        React.createElement('h2', { className: 'text-lg font-black uppercase' }, puzzle.title),
+        React.createElement('h2', { className: 'text-lg font-black uppercase dark:text-white' }, puzzle.title),
         React.createElement('div', { className: 'flex gap-2 mt-1' }, [
           React.createElement('span', { className: 'text-[9px] font-bold bg-black text-white px-2 py-0.5 rounded' }, `⏱️ ${fmtTime(timer)}`),
           React.createElement('span', { className: 'text-[9px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded' }, `💡 HINT: ${maxHints - hintsUsed}`),
@@ -159,9 +179,9 @@ const Player = ({ puzzle, onBack }) => {
     ]),
 
     // Progress Bar
-    React.createElement('div', { key: 'pb', className: 'w-full h-3 bg-gray-200 border border-black overflow-hidden shrink-0' }, 
+    React.createElement('div', { key: 'pb', className: 'w-full h-3 bg-gray-200 dark:bg-gray-700 border border-black overflow-hidden shrink-0' }, 
       React.createElement('div', { 
-        className: 'h-full bg-blue-500 transition-all duration-500 flex items-center justify-center text-[7px] font-black text-white',
+        className: 'h-full bg-blue-500 transition-all duration-1000 ease-out flex items-center justify-center text-[7px] font-black text-white',
         style: { width: `${stats.percent}%` }
       }, stats.percent > 10 ? `${stats.percent}%` : '')
     ),
@@ -169,14 +189,13 @@ const Player = ({ puzzle, onBack }) => {
     // Main Game Area
     React.createElement('div', { key: 'g', className: 'flex flex-col lg:flex-row gap-4 overflow-hidden flex-1' }, [
       // Grid Section
-      React.createElement('div', { className: 'flex-1 flex justify-center items-center bg-slate-50 border border-gray-200 rounded-lg overflow-hidden p-2' }, 
+      React.createElement('div', { className: 'flex-1 flex justify-center items-center bg-slate-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden p-2 transition-colors' }, 
         React.createElement('div', { 
-          className: 'inline-grid bg-gray-900 gap-px border-2 border-black p-1',
-          // PERBAIKAN: Menggunakan 100% lebar kontainer dibagi jumlah kolom untuk mencegah scroll
+          className: 'inline-grid bg-gray-900 gap-px border-2 border-black p-1 shadow-2xl',
           style: { 
             gridTemplateColumns: `repeat(${puzzle.width}, minmax(15px, 1fr))`,
             width: '100%',
-            maxWidth: `${puzzle.width * 40}px`, // Batas maksimal agar tidak terlalu gepeng
+            maxWidth: `${puzzle.width * 40}px`,
             aspectRatio: `${puzzle.width} / ${puzzle.height}`
           }
         }, Array.from({ length: puzzle.height * puzzle.width }).map((_, i) => {
@@ -192,7 +211,7 @@ const Player = ({ puzzle, onBack }) => {
 
           return React.createElement('div', { 
             key: i, 
-            className: `grid-cell ${!target ? 'black' : 'bg-white'} ${active ? 'active-cell' : ''} ${statusClass} relative overflow-hidden`,
+            className: `grid-cell ${!target ? 'bg-gray-900' : 'bg-white'} ${active ? 'ring-2 ring-blue-500 z-10' : ''} ${statusClass} relative overflow-hidden transition-all duration-200`,
             style: { width: '100%', height: '100%' },
             onClick: () => target && setCursor({ r, c })
           }, [
@@ -200,7 +219,7 @@ const Player = ({ puzzle, onBack }) => {
             target && React.createElement('input', {
               key: 'in',
               ref: (el) => { if (el) inputRefs.current.set(`${r}-${c}`, el); else inputRefs.current.delete(`${r}-${c}`); },
-              className: 'w-full h-full text-center font-black text-xs sm:text-base uppercase focus:outline-none bg-transparent p-0',
+              className: 'w-full h-full text-center font-black text-xs sm:text-base uppercase focus:outline-none bg-transparent p-0 dark:text-black',
               style: { border: 'none' },
               value: grid[r]?.[c] || '', 
               onChange: e => handleInput(r, c, e.target.value),
@@ -219,17 +238,17 @@ const Player = ({ puzzle, onBack }) => {
 
       // Sidebar Clues
       React.createElement('div', { className: 'w-full lg:w-64 flex flex-col gap-2 shrink-0' }, [
-        React.createElement('div', { className: 'p-3 bg-white card border-l-4 border-l-blue-600 shrink-0' }, [
+        React.createElement('div', { className: 'p-3 bg-white dark:bg-gray-800 dark:text-white card border-l-4 border-l-blue-600 shrink-0 shadow-sm' }, [
           React.createElement('h4', { className: 'text-[9px] font-black uppercase opacity-40 tracking-wider' }, 'SEDANG DIISI'),
           React.createElement('p', { className: 'font-bold text-[11px]' }, activeClue ? `${activeClue.number}. ${activeClue.clue}` : 'Klik kotak')
         ]),
         React.createElement('div', { className: 'flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar' }, 
-          ['ACROSS', 'DOWN'].map(d => React.createElement('div', { key: d, className: 'bg-white p-2 card' }, [
-            React.createElement('h5', { className: 'text-[9px] font-black border-b border-black mb-1 pb-0.5' }, d === 'ACROSS' ? 'MENDATAR' : 'MENURUN'),
+          ['ACROSS', 'DOWN'].map(d => React.createElement('div', { key: d, className: 'bg-white dark:bg-gray-800 dark:text-white p-2 card' }, [
+            React.createElement('h5', { className: 'text-[9px] font-black border-b border-black dark:border-white mb-1 pb-0.5' }, d === 'ACROSS' ? 'MENDATAR' : 'MENURUN'),
             React.createElement('ul', { className: 'text-[9px] space-y-1' }, 
               puzzle.words.filter(w => w.direction === d).map(w => React.createElement('li', {
                 key: w.number, 
-                className: `cursor-pointer p-1 rounded transition-all ${cursor.r === w.row && cursor.c === w.col && dir === d ? 'bg-blue-100 font-bold' : 'hover:bg-gray-50'}`,
+                className: `cursor-pointer p-1 rounded transition-all ${cursor.r === w.row && cursor.c === w.col && dir === d ? 'bg-blue-100 dark:bg-blue-900 font-bold' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`,
                 onClick: () => { setCursor({ r: w.row, c: w.col }); setDir(d); }
               }, `${w.number}. ${w.clue}`))
             )
@@ -239,8 +258,8 @@ const Player = ({ puzzle, onBack }) => {
     ]),
 
     // Modal Kemenangan
-    win && React.createElement('div', { className: 'fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4' }, 
-      React.createElement('div', { className: 'text-center p-6 card bg-white max-w-xs w-full shadow-lg' }, [
+    win && React.createElement('div', { className: 'fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4 backdrop-blur-sm' }, 
+      React.createElement('div', { className: 'text-center p-6 card bg-white dark:bg-gray-800 dark:text-white max-w-xs w-full shadow-lg animate-bounce' }, [
         React.createElement('h2', { className: 'text-2xl font-black mb-2 italic' }, 'MENANG!'),
         React.createElement('p', { className: 'text-xs font-bold mb-4' }, `Selesai dalam ${fmtTime(timer)}`),
         React.createElement('button', { onClick: onBack, className: 'w-full py-3 bg-black text-white font-black uppercase card text-xs' }, 'KEMBALI KE MENU')
