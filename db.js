@@ -9,7 +9,7 @@ const pool = new Pool({
 
 pool.connect((err, client, release) => {
   if (err) {
-    return console.error('❌ Gagal konek ke database:', err.stack);
+    return console.error('❌ Gagal konek ke database:', err.message);
   }
   console.log('✅ Koneksi database Supabase Berhasil!');
   release();
