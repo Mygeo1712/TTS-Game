@@ -54,6 +54,11 @@ const AdminPanel = ({ onSave, onCancel }) => {
   };
 
   const handleGenerate = () => {
+    // VALIDASI: Judul tidak boleh kosong
+    if (!title.trim()) {
+      return alert("Judul TTS tidak boleh kosong!");
+    }
+
     const valid = rows.filter(r => r.answer.trim() && r.clue.trim());
     if (valid.length < 5) return alert("Minimal 5 kata.");
 
@@ -78,7 +83,18 @@ const AdminPanel = ({ onSave, onCancel }) => {
   };
 
   const handlePublish = () => {
-    onSave({ title: title || 'Tanpa Judul', width: preview.width, height: preview.height, difficulty: 'Medium', placed: preview.placed });
+    // VALIDASI ULANG: Judul tidak boleh kosong saat publish
+    if (!title.trim()) {
+      return alert("Judul TTS tidak boleh kosong!");
+    }
+    
+    onSave({ 
+      title: title.trim(), 
+      width: preview.width, 
+      height: preview.height, 
+      difficulty: 'Medium', 
+      placed: preview.placed 
+    });
     localStorage.removeItem('tts-admin-draft'); // Bersihkan draf setelah publish
   };
 
