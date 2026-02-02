@@ -1,5 +1,8 @@
 const { Pool } = require('pg');
 
+// Tambahkan log ini untuk pengecekan di Railway Logs
+console.log("Checking DATABASE_URL...", process.env.DATABASE_URL ? "Tersedia" : "TIDAK DITEMUKAN");
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
