@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Direction } from '../generator.js';
 
 const Player = ({ puzzle, onBack }) => {
-  // --- KONFIGURASI NETWORK (Ganti IP sesuai laptop Anda) ---
-  const API_BASE = "http://10.109.191.192:5000";
+  // --- KONFIGURASI NETWORK ---
+  const API_BASE = "http://10.109.191.192:3000";
 
   // --- STATE DASAR ---
   const [grid, setGrid] = useState([]);
@@ -32,42 +32,72 @@ const Player = ({ puzzle, onBack }) => {
   const syncMyState = async (updatedGrid, currentCursor) => {
     if (!puzzle?.id || !isJoined || roomID === "SOLO") return;
     try {
-      await fetch(`${API_BASE}/api/puzzles/${puzzle.id}/sync`, {
+      const res = await fetch(`${API_BASE}/api/puzzles/${puzzle.id}/sync`, {
         method: 'POST',
+        mode: 'cors', // TAMBAHAN: Paksa mode cors
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          roomID: roomID, // Filter sinkronisasi berdasarkan ID Room
+          roomID: roomID, 
           playerId: myPlayerId.current,
           grid: updatedGrid,
           cursor: currentCursor,
           lastActive: new Date().toISOString()
         })
       });
-    } catch (e) { console.error("Sync error"); }
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error("Sync server error:", errorData.error);
+      }
+    } catch (e) { 
+      console.error("Sync error (Network):", e.message); 
+    }
   };
 
-  // 2. Loop Polling: Mengambil data dari Room Spesifik setiap 2 detik
+  // 2. Loop Polling: Sinkronisasi mutlak Timer dan Player List
   useEffect(() => {
     if (!puzzle || win || !isJoined || roomID === "SOLO") return;
 
     const fetchRoomState = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/puzzles/${puzzle.id}/room-state?roomID=${roomID}`);
+        const res = await fetch(`${API_BASE}/api/puzzles/${puzzle.id}/room-state?roomID=${roomID}`, {
+            mode: 'cors' // TAMBAHAN: Paksa mode cors
+        });
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Gagal fetch room state");
+        }
         const data = await res.json();
 
-        if (data.globalGrid) setGrid(data.globalGrid);
+        // SINKRONISASI TIMER
+        if (data.startTime) {
+          const roomStart = new Date(data.startTime).getTime();
+          const now = new Date().getTime();
+          const elapsed = Math.floor((now - roomStart) / 1000);
+          setTimer(elapsed > 0 ? elapsed : 0);
+        }
+
+        if (data.globalGrid && Array.isArray(data.globalGrid) && data.globalGrid.length > 0) {
+           setGrid(data.globalGrid);
+        }
         
-        const others = (data.activePlayers || []).filter(p => p.id !== myPlayerId.current);
-        setOtherPlayers(others);
-        setOnlineCount((data.activePlayers || []).length);
-      } catch (e) { console.error("Polling error"); }
+        // SINKRONISASI DAFTAR PLAYER
+        if (data.activePlayers) {
+          const activeOnes = data.activePlayers.filter(p => p.id !== myPlayerId.current);
+          setOtherPlayers(activeOnes);
+          setOnlineCount(data.activePlayers.length);
+        }
+      } catch (e) { 
+        console.error("Polling error details:", e.message); 
+      }
     };
 
     const interval = setInterval(fetchRoomState, 2000);
+    fetchRoomState(); 
+
     return () => clearInterval(interval);
   }, [puzzle, win, isJoined, roomID]);
 
-  // 3. Inisialisasi Awal
+  // 3. Inisialisasi Awal & Timer Lokal
   useEffect(() => {
     if (!puzzle) return;
     
@@ -86,25 +116,34 @@ const Player = ({ puzzle, onBack }) => {
       setDir(first.direction);
     }
     
-    timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
-    return () => clearInterval(timerRef.current);
-  }, [puzzle]);
+    if (isJoined && roomID === "SOLO") {
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = setInterval(() => {
+          setTimer(t => t + 1);
+        }, 1000);
+    }
+    
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [puzzle, isJoined, roomID]);
 
-  // Simpan progress lokal (Backup)
+  // Simpan progress lokal
   useEffect(() => {
     if (grid.length > 0 && puzzle?.id && !win) {
       localStorage.setItem(`progress-${puzzle.id}`, JSON.stringify(grid));
     }
   }, [grid, puzzle, win]);
 
+  // Handle Fokus Grid
   useEffect(() => {
+    if (!isJoined) return;
     const key = `${cursor.r}-${cursor.c}`;
     const targetEl = inputRefs.current.get(key);
     if (targetEl) {
       requestAnimationFrame(() => targetEl.focus());
     }
-  }, [cursor]);
+  }, [cursor, isJoined]);
 
+  // --- LOGIKA PERMAINAN ---
   const getTargetLetter = (r, c) => {
     const w = puzzle.words.find(p => 
       p.direction === Direction.ACROSS 
@@ -138,7 +177,7 @@ const Player = ({ puzzle, onBack }) => {
   };
 
   const handleCellSelect = (r, c) => {
-    if (isCellLocked(r, c)) return;
+    if (!isJoined || isCellLocked(r, c)) return;
     const newCursor = { r, c };
     setCursor(newCursor);
     if (isJoined) syncMyState(grid, newCursor);
@@ -154,7 +193,7 @@ const Player = ({ puzzle, onBack }) => {
   };
 
   const handleInput = (r, c, v) => {
-    if (win || isCellLocked(r, c)) return;
+    if (!isJoined || win || isCellLocked(r, c)) return;
     const char = v.toUpperCase().slice(-1);
     if (char && !/[A-Z]/.test(char)) return;
 
@@ -186,7 +225,7 @@ const Player = ({ puzzle, onBack }) => {
   };
 
   const handleFinishGame = () => {
-    clearInterval(timerRef.current);
+    if (timerRef.current) clearInterval(timerRef.current);
     setWin(true);
     updateLeaderboard(timer);
     localStorage.removeItem(`progress-${puzzle.id}`);
@@ -198,6 +237,7 @@ const Player = ({ puzzle, onBack }) => {
   };
 
   const handleKeyDown = (e, r, c) => {
+    if (!isJoined) return;
     if (e.key === 'Backspace' && !grid[r][c]) {
       const prevR = dir === Direction.DOWN ? r - 1 : r;
       const prevC = dir === Direction.ACROSS ? c - 1 : c;
@@ -246,7 +286,7 @@ const Player = ({ puzzle, onBack }) => {
 
   return React.createElement('div', { className: 'space-y-4 max-h-screen flex flex-col p-2 animate-in fade-in duration-700 print:bg-white' }, [
     
-    // --- MODAL PRIVATE ROOM (UI SESUAI GAMBAR) ---
+    // --- MODAL PRIVATE ROOM ---
     !isJoined && React.createElement('div', { key: 'join-modal', className: 'fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4 backdrop-blur-sm' }, 
       React.createElement('div', { className: 'bg-[#1e293b] p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center border border-gray-700' }, [
         React.createElement('h3', { className: 'text-3xl font-black mb-2 text-white uppercase tracking-tight' }, 'MODE MAIN BARENG'),
@@ -255,11 +295,12 @@ const Player = ({ puzzle, onBack }) => {
           placeholder: 'KODE ROOM...', 
           className: 'w-full p-4 bg-[#334155] border-2 border-gray-600 rounded-xl mb-6 text-center font-black uppercase text-xl text-white outline-none focus:border-blue-500 transition-all',
           value: roomID,
-          onChange: e => setRoomID(e.target.value.toUpperCase())
+          onChange: e => setRoomID(e.target.value.toUpperCase()),
+          autoFocus: true
         }),
         React.createElement('div', { className: 'flex flex-col gap-3' }, [
           React.createElement('button', { 
-            onClick: () => { if(roomID.trim()) setIsJoined(true); else alert("Masukkan Kode Room!"); },
+            onClick: () => { if(roomID.trim()) { setIsJoined(true); } else alert("Masukkan Kode Room!"); },
             className: 'w-full py-4 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg active:scale-95 transition-all' 
           }, 'MASUK KE ROOM'),
           React.createElement('button', { 
@@ -311,29 +352,22 @@ const Player = ({ puzzle, onBack }) => {
           const r = Math.floor(i / puzzle.width), c = i % puzzle.width;
           const target = getTargetLetter(r, c), active = cursor.r === r && cursor.c === c;
           const start = puzzle.words.find(w => w.row === r && w.col === c);
-          
           const pLain = otherPlayers.find(p => p.cursor?.r === r && p.cursor?.c === c);
           const isLocked = !!pLain;
 
-          let statusClass = '';
-          if (showValidation && grid[r][c]) {
-            statusClass = grid[r][c] === target ? '!bg-green-400' : '!bg-red-400';
-          }
-
           return React.createElement('div', { 
             key: i, 
-            className: `grid-cell relative transition-all duration-300 ${!target ? 'bg-gray-900' : 'bg-white'} ${active ? 'ring-2 ring-blue-500 z-10' : ''} ${statusClass}`,
+            className: `grid-cell relative transition-all duration-300 ${!target ? 'bg-gray-900' : 'bg-white'} ${active ? 'ring-2 ring-blue-500 z-10' : ''}`,
             style: { 
-              width: '100%', height: '100%',
               backgroundColor: isLocked ? '#facc15' : undefined,
               opacity: isLocked ? 0.7 : 1
             },
             onClick: () => target && handleCellSelect(r, c)
           }, [
-            start && React.createElement('span', { key: 'num', className: 'absolute top-0.5 left-0.5 text-[6px] sm:text-[8px] font-black z-10' }, start.number),
-            isLocked && React.createElement('span', { key: 'p-name', className: 'absolute -top-3 left-0 bg-black text-white text-[5px] px-1 font-bold rounded z-20' }, pLain.id),
+            start && React.createElement('span', { key: 'num', className: 'absolute top-0.5 left-0.5 text-[6px] sm:text-[8px] font-black z-10 print:text-black dark:text-gray-400' }, start.number),
+            isLocked && React.createElement('span', { key: 'p-name', className: 'absolute -top-3 left-0 bg-black text-white text-[5px] px-1 font-bold rounded z-20 whitespace-nowrap' }, pLain.id),
             target && React.createElement('input', {
-              disabled: isLocked,
+              disabled: isLocked || !isJoined,
               ref: (el) => { if (el) inputRefs.current.set(`${r}-${c}`, el); },
               className: `w-full h-full text-center font-black text-xs sm:text-base uppercase focus:outline-none bg-transparent p-0 dark:text-black print:text-black ${isLocked ? 'cursor-not-allowed' : ''}`,
               value: grid[r]?.[c] || '', 
@@ -348,13 +382,13 @@ const Player = ({ puzzle, onBack }) => {
       // Sidebar
       React.createElement('div', { className: 'w-full lg:w-64 flex flex-col gap-2 shrink-0 print:block' }, [
         React.createElement('div', { key: 'room-activity', className: 'p-3 bg-blue-50 dark:bg-gray-800 card border-l-4 border-blue-600' }, [
-          React.createElement('h4', { className: 'text-[10px] font-black uppercase mb-1' }, '👥 Room Activity'),
+          React.createElement('h4', { className: 'text-[10px] font-black uppercase mb-1 dark:text-blue-400' }, '👥 Room Activity'),
           React.createElement('p', { className: 'text-[9px] font-bold text-blue-600' }, `• ${myPlayerId.current} (Anda)`),
-          ...otherPlayers.map(p => React.createElement('p', { key: p.id, className: 'text-[9px] font-bold text-gray-500 animate-pulse' }, `• ${p.id} di kotak ${p.cursor.r},${p.cursor.c}`))
+          otherPlayers.map(p => React.createElement('p', { key: p.id, className: 'text-[9px] font-bold text-gray-500 animate-pulse' }, `• ${p.id} sedang aktif`))
         ]),
         leaderboard.length > 0 && React.createElement('div', { key: 'lb', className: 'p-2 bg-yellow-50 dark:bg-gray-800 card border-l-4 border-yellow-400 print:hidden' }, [
-            React.createElement('h4', { className: 'text-[10px] font-black uppercase mb-1' }, '🏆 Skor Tercepat'),
-            leaderboard.map((l, idx) => React.createElement('div', { key: idx, className: 'flex justify-between text-[9px] font-bold' }, [
+            React.createElement('h4', { className: 'text-[10px] font-black uppercase mb-1 dark:text-yellow-400' }, '🏆 Skor Tercepat'),
+            leaderboard.map((l, idx) => React.createElement('div', { key: idx, className: 'flex justify-between text-[9px] font-bold dark:text-white' }, [
               React.createElement('span', null, `${idx+1}. ${l.date}`),
               React.createElement('span', null, fmtTime(l.time))
             ]))
@@ -369,7 +403,7 @@ const Player = ({ puzzle, onBack }) => {
             React.createElement('ul', { className: 'text-[9px] space-y-1' }, 
               puzzle.words.filter(w => w.direction === d).map(w => React.createElement('li', {
                 key: w.number, 
-                className: `cursor-pointer p-1 rounded transition-all ${cursor.r === w.row && cursor.c === w.col && dir === d ? 'bg-blue-100 dark:bg-blue-900 font-bold' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`,
+                className: `cursor-pointer p-1 rounded transition-all ${cursor.r === w.row && cursor.c === w.col && dir === d ? 'bg-blue-100 dark:bg-blue-900 font-bold' : 'hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-400'}`,
                 onClick: () => { handleCellSelect(w.row, w.col); if(d === 'DOWN') setDir(Direction.DOWN); else setDir(Direction.ACROSS); }
               }, `${w.number}. ${w.clue}`))
             )
@@ -381,8 +415,8 @@ const Player = ({ puzzle, onBack }) => {
     // Modal Kemenangan
     win && React.createElement('div', { className: 'fixed inset-0 bg-black/80 flex items-center justify-center z-[250] p-4 backdrop-blur-sm' }, 
       React.createElement('div', { className: 'text-center p-6 card bg-white dark:bg-gray-800 max-w-xs w-full shadow-lg animate-bounce' }, [
-        React.createElement('h2', { className: 'text-2xl font-black mb-2 italic' }, 'MENANG!'),
-        React.createElement('p', { className: 'text-xs font-bold mb-4' }, `Waktu: ${fmtTime(timer)}`),
+        React.createElement('h2', { className: 'text-2xl font-black mb-2 italic dark:text-white' }, 'MENANG!'),
+        React.createElement('p', { className: 'text-xs font-bold mb-4 dark:text-gray-300' }, `Waktu: ${fmtTime(timer)}`),
         React.createElement('button', { onClick: handleExit, className: 'w-full py-3 bg-black text-white font-black uppercase card text-xs' }, 'KEMBALI KE MENU')
       ])
     )
