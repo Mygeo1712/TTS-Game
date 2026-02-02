@@ -3,7 +3,7 @@ import { Direction } from '../generator.js';
 
 const Player = ({ puzzle, onBack }) => {
   // --- KONFIGURASI NETWORK ---
-  const API_BASE = "http://10.59.203.192:3000";
+  const API_BASE = window.location.origin;
 
   // --- STATE DASAR ---
   const [grid, setGrid] = useState([]);
