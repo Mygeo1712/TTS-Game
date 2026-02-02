@@ -1,6 +1,12 @@
 const { Pool } = require('pg');
 
-// Tambahkan log ini untuk pengecekan di Railway Logs
+// Tambahkan baris ini untuk "membersihkan" variabel yang bentrok dari Railway
+delete process.env.PGHOST;
+delete process.env.PGUSER;
+delete process.env.PGPASSWORD;
+delete process.env.PGDATABASE;
+delete process.env.PGPORT;
+
 console.log("Checking DATABASE_URL...", process.env.DATABASE_URL ? "Tersedia" : "TIDAK DITEMUKAN");
 
 const pool = new Pool({
