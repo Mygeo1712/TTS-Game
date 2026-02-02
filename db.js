@@ -1,10 +1,14 @@
 const { Pool } = require('pg');
 
+// Solusi paksa: Memecah kredensial agar tidak terjadi ENOTFOUND postgres
 const pool = new Pool({
-  // Masukkan string koneksi Supabase Anda secara langsung di sini
-  connectionString: 'postgresql://postgres:#17Desember2003@db.fztgslkithvwksebvxok.supabase.co:5432/postgres',
+  user: 'postgres',
+  host: 'db.fztgslkithvwksebvxok.supabase.co',
+  database: 'postgres',
+  password: '#17Des2003',
+  port: 5432,
   ssl: {
-    rejectUnauthorized: false 
+    rejectUnauthorized: false
   }
 });
 
