@@ -12,14 +12,31 @@ const AdminPanel = ({ onSave, onCancel }) => {
     const savedDraft = localStorage.getItem('tts-admin-draft');
     if (savedDraft) {
       const { title: t, rows: r } = JSON.parse(savedDraft);
-      setTitle(t);
-      setRows(r);
+      setTitle(t || '');
+      setRows(r || Array(5).fill(0).map(() => ({ answer: '', clue: '' })));
     }
   }, []);
 
   useEffect(() => {
     localStorage.setItem('tts-admin-draft', JSON.stringify({ title, rows }));
   }, [title, rows]);
+
+  // --- LOGIKA OTOMATIS: MENENTUKAN TINGKAT KESULITAN ---
+  const calculateDifficulty = (placedCount, width, height) => {
+    const totalCells = width * height;
+    
+    // Kriteria:
+    // 1. Easy: Kata <= 7 dan area grid kecil
+    // 2. Hard: Kata > 12 atau area grid sangat luas
+    // 3. Medium: Diantara keduanya
+    if (placedCount <= 7 && totalCells < 100) {
+      return 'Easy';
+    } else if (placedCount > 12 || totalCells > 250) {
+      return 'Hard';
+    } else {
+      return 'Medium';
+    }
+  };
 
   const update = (i, f, v) => {
     const n = [...rows];
@@ -54,13 +71,12 @@ const AdminPanel = ({ onSave, onCancel }) => {
   };
 
   const handleGenerate = () => {
-    // VALIDASI: Judul tidak boleh kosong
     if (!title.trim()) {
       return alert("Judul TTS tidak boleh kosong!");
     }
 
     const valid = rows.filter(r => r.answer.trim() && r.clue.trim());
-    if (valid.length < 5) return alert("Minimal 5 kata.");
+    if (valid.length < 5) return alert("Minimal masukkan 5 kata dan petunjuk.");
 
     let bestResult = null;
     for (let i = 0; i < 100; i++) {
@@ -70,7 +86,7 @@ const AdminPanel = ({ onSave, onCancel }) => {
       }
     }
 
-    if (!bestResult) return alert("Gagal menyusun grid. Coba ganti kata.");
+    if (!bestResult) return alert("Gagal menyusun grid. Coba ganti beberapa kata.");
 
     let n = 1;
     const posMap = {};
@@ -79,23 +95,34 @@ const AdminPanel = ({ onSave, onCancel }) => {
       if (!posMap[k]) posMap[k] = n++;
       return { ...p, number: posMap[k] };
     });
-    setPreview({ ...bestResult, placed: numbered });
+
+    // Tentukan difficulty otomatis saat generate
+    const autoDifficulty = calculateDifficulty(numbered.length, bestResult.width, bestResult.height);
+
+    setPreview({ 
+      ...bestResult, 
+      placed: numbered,
+      autoDifficulty: autoDifficulty 
+    });
   };
 
   const handlePublish = () => {
-    // VALIDASI ULANG: Judul tidak boleh kosong saat publish
     if (!title.trim()) {
       return alert("Judul TTS tidak boleh kosong!");
     }
     
+    if (!preview) return alert("Silakan klik Generate Grid terlebih dahulu.");
+
     onSave({ 
       title: title.trim(), 
       width: preview.width, 
       height: preview.height, 
-      difficulty: 'Medium', 
+      difficulty: preview.autoDifficulty, // Mengirim hasil perhitungan otomatis
       placed: preview.placed 
     });
-    localStorage.removeItem('tts-admin-draft'); // Bersihkan draf setelah publish
+
+    localStorage.removeItem('tts-admin-draft'); 
+    alert(`Puzzle "${title}" dengan tingkat kesulitan ${preview.autoDifficulty} berhasil disimpan!`);
   };
 
   return React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-10 max-h-[calc(100vh-120px)]' }, [
@@ -113,14 +140,14 @@ const AdminPanel = ({ onSave, onCancel }) => {
             placeholder: 'KATA', value: r.answer, 
             onChange: e => update(i, 'answer', e.target.value),
             onKeyDown: e => handleKeyDown(e, 'answer', i),
-            className: 'w-28 p-2 border-2 border-black font-bold uppercase focus:bg-yellow-50 outline-none text-sm dark:bg-gray-700'
+            className: 'w-28 p-2 border-2 border-black font-bold uppercase focus:bg-yellow-50 outline-none text-sm dark:bg-gray-700 dark:text-white'
           }),
           React.createElement('input', { 
             ref: el => inputRefs.current[`clue-${i}`] = el,
             placeholder: 'Petunjuk/Clue...', value: r.clue, 
             onChange: e => update(i, 'clue', e.target.value),
             onKeyDown: e => handleKeyDown(e, 'clue', i),
-            className: 'flex-1 p-2 border-2 border-black focus:bg-blue-50 outline-none text-sm dark:bg-gray-700'
+            className: 'flex-1 p-2 border-2 border-black focus:bg-blue-50 outline-none text-sm dark:bg-gray-700 dark:text-white'
           }),
           React.createElement('button', {
             key: `del-${i}`,
@@ -132,7 +159,7 @@ const AdminPanel = ({ onSave, onCancel }) => {
       React.createElement('div', { className: 'flex gap-2 sticky bottom-0 bg-white dark:bg-gray-900 py-2' }, [
         React.createElement('button', { 
           onClick: () => setRows([...rows, { answer: '', clue: '' }]), 
-          className: 'px-4 py-2 border-2 border-black font-bold hover:bg-gray-100 text-sm dark:text-white' 
+          className: 'px-4 py-2 border-2 border-black font-bold hover:bg-gray-100 text-sm dark:text-white dark:hover:bg-gray-800' 
         }, '+ Baris'),
         React.createElement('button', { 
           onClick: handleGenerate, 
@@ -144,6 +171,10 @@ const AdminPanel = ({ onSave, onCancel }) => {
     // BAGIAN KANAN: PREVIEW GRID
     React.createElement('div', { key: 'p', className: 'bg-white dark:bg-gray-800 p-4 card flex flex-col items-center justify-start overflow-auto min-h-[400px]' }, 
       preview ? [
+        // Indikator Difficulty Otomatis
+        React.createElement('div', { key: 'diff', className: 'mb-4 px-4 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-bold' }, 
+          `Tingkat Kesulitan: ${preview.autoDifficulty}`
+        ),
         React.createElement('div', { 
           key: 'g', 
           className: 'inline-grid bg-black gap-px border-2 border-black shadow-xl mb-6',
