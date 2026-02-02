@@ -117,8 +117,8 @@ app.get(/.*/, (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Server berjalan di: http://localhost:${PORT}`);
-  console.log(`🌐 Akses dari HP gunakan: http://10.59.203.192:${PORT}`);
+  console.log(`✅ Server berjalan di port: ${PORT}`);
 });
