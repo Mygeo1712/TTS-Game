@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   // Gunakan URI dari Session Pooler (Port 6543)
-  connectionString: 'postgresql://postgres.fztgslkithvwksebvxok:[YOUR-PASSWORD]@aws-1-ap-south-1.pooler.supabase.com:6543/postgres',
+  connectionString: 'postgresql://postgres.fztgslkithvwksebvxok:17Desember2003#@aws-1-ap-south-1.pooler.supabase.com:6543/postgres',
   ssl: {
     rejectUnauthorized: false
   }
