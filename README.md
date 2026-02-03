@@ -52,8 +52,22 @@ Algoritma utama dalam `generator.js` bekerja dengan prinsip **Iterative Fitting*
 ---
 
 ## ⚠️ Masalah & Solusi
-* **Masalah:** Error `ENETUNREACH` saat deployment karena ketidakcocokan protokol IPv6 di infrastruktur hosting.
-* **Solusi:** Mengimplementasikan **Supabase Connection Pooler** pada port `6543` dan menggunakan konfigurasi objek pada `db.js` untuk memaksa koneksi via **IPv4**.
+1. **Masalah Koneksi Database (IPv6 vs IPv4)**
+* **Masalah:**Error `ENETUNREACH` saat deployment karena ketidakcocokan protokol IPv6 di infrastruktur hosting.
+* **Solusi:** Mengimplementasikan **Supabase Connection Pooler** pada port `6543` dan menggunakan konfigurasi `ssl: { rejectUnauthorized: false }` pada file `db.js` untuk memaksa koneksi via **IPv4**.
+
+2. **Isu "ID Room Nyangkut" & Sinkronisasi Kemenangan**
+* **Masalah:** Penghapusan room secara instan saat satu pemain menang menyebabkan pemain lain mengalami error `404`
+* **Solusi:** Implementasi  **Soft-Finish System:** 
+  - Database hanya mengubah status is_won = TRUE
+  - Room dihapus setelah seluruh pemain menekan tombol "Kembali ke Menu" melalui endpoint /leave
+
+3. **`Error Cannot read properties of undefined (reading '2')`**
+* **Masalah:** Halaman blank saat loading karena fungsi statistik berjalan sebelum data grid selesai diambil.
+* **Solusi:** Menambahkan **safety check** pada Player.js: `if (!grid[r]) continue;`
+
+
+
 
 ---
 
