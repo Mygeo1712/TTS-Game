@@ -30,16 +30,24 @@ const Player = ({ puzzle, onBack }) => {
   const cellTimestamps = useRef(new Map()); 
   const hasLoadedFromServer = useRef(false);
 
-  // 1. Fungsi Sinkronisasi
+  // 1. Fungsi Sinkronisasi (DIPERBAIKI: Mengizinkan SOLO khusus untuk isWin)
   const syncMyState = async (updatedGrid, currentCursor, updatedHints, updatedHintCells, isWinTrigger = false, finalTimeVal = null) => {
-    if (!puzzle?.id || !isJoined || roomID === "SOLO") return;
-    if (!hasLoadedFromServer.current && !isWinTrigger) return;
+    if (!puzzle?.id || !isJoined) return;
+    
+    // Jika SOLO, hanya boleh lanjut jika ini adalah laporan kemenangan (isWin)
+    if (roomID === "SOLO" && !isWinTrigger) return;
+    
+    // Multiplayer butuh data sinkron dari server sebelum kirim balik
+    if (roomID !== "SOLO" && !hasLoadedFromServer.current && !isWinTrigger) return;
 
     try {
       await fetch(`${API_BASE}/api/puzzles/${puzzle.id}/sync`, {
         method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          roomID, playerId: myPlayerId.current, grid: updatedGrid, cursor: currentCursor, 
+          roomID, 
+          playerId: myPlayerId.current, 
+          grid: updatedGrid, 
+          cursor: currentCursor, 
           hintsRemaining: updatedHints !== undefined ? updatedHints : hintsRemaining,
           hintCells: updatedHintCells !== undefined ? Array.from(updatedHintCells) : Array.from(hintCells),
           isWin: isWinTrigger,
@@ -49,7 +57,6 @@ const Player = ({ puzzle, onBack }) => {
     } catch (e) { console.error("Sync error:", e.message); }
   };
 
-  // 2. Ambil Leaderboard Global dari DB
   const fetchGlobalLeaderboard = async () => {
     if (!puzzle?.id) return;
     try {
@@ -61,7 +68,6 @@ const Player = ({ puzzle, onBack }) => {
     } catch (e) { console.error("Leaderboard fetch error"); }
   };
 
-  // Fungsi Keluar & Cleanup
   const handleExitGame = async () => {
     if (isJoined && roomID !== "SOLO") {
       try {
@@ -74,24 +80,21 @@ const Player = ({ puzzle, onBack }) => {
     onBack();
   };
 
-  // 3. Loop Polling (Update Global State & Menang Bersama)
+  // 2. Loop Polling
   useEffect(() => {
     if (!puzzle || win || !isJoined || roomID === "SOLO") return;
 
     const fetchRoomState = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/puzzles/${puzzle.id}/room-state?roomID=${roomID}`, { mode: 'cors' });
-        
         if (res.status === 404) {
           setWin(true);
           if (timerRef.current) clearInterval(timerRef.current);
           fetchGlobalLeaderboard();
           return;
         }
-
         if (!res.ok) return;
         const data = await res.json();
-
         if (data.isWon) {
           setWin(true);
           if (timerRef.current) clearInterval(timerRef.current);
@@ -99,14 +102,12 @@ const Player = ({ puzzle, onBack }) => {
           fetchGlobalLeaderboard();
           return; 
         }
-
         if (data.startTime) {
           const roomStart = new Date(data.startTime).getTime();
           setTimer(Math.floor((Date.now() - roomStart) / 1000));
         }
         if (data.hintsRemaining !== undefined) setHintsRemaining(data.hintsRemaining);
         if (data.hintCells) setHintCells(new Set(data.hintCells));
-
         if (data.globalGrid && Array.isArray(data.globalGrid)) {
           hasLoadedFromServer.current = true;
           setGrid(prevGrid => {
@@ -134,7 +135,7 @@ const Player = ({ puzzle, onBack }) => {
     return () => clearInterval(interval);
   }, [puzzle, win, isJoined, roomID]);
 
-  // 4. Inisialisasi
+  // 3. Inisialisasi
   useEffect(() => {
     if (!puzzle || !isJoined) return;
     setWin(false); setTimer(0); setHintsRemaining(3); setHintCells(new Set());
@@ -155,14 +156,11 @@ const Player = ({ puzzle, onBack }) => {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [puzzle, isJoined, roomID]);
 
-  // Handle Fokus Input Otomatis
   useEffect(() => {
     if (!isJoined || win) return;
-    const targetEl = inputRefs.current.get(`${cursor.r}-${cursor.c}`);
-    if (targetEl) targetEl.focus();
+    inputRefs.current.get(`${cursor.r}-${cursor.c}`)?.focus();
   }, [cursor, isJoined, win]);
 
-  // --- LOGIKA GAMEPLAY ---
   const getTargetLetter = (r, c) => {
     const w = puzzle.words.find(p => p.direction === Direction.ACROSS ? (p.row === r && c >= p.col && c < p.col + p.answer.length) : (p.col === c && r >= p.row && r < p.row + p.answer.length));
     return w ? (w.direction === Direction.ACROSS ? w.answer[c - w.col] : w.answer[r - w.row]) : null;
@@ -188,16 +186,14 @@ const Player = ({ puzzle, onBack }) => {
 
   const stats = (() => {
     if (!puzzle || !grid || grid.length === 0) return { filled: 0, total: 0, percent: 0 };
-    let totalCells = 0, filledCells = 0;
+    let total = 0, filled = 0;
     for (let r = 0; r < puzzle.height; r++) {
+      if (!grid[r]) continue;
       for (let c = 0; c < puzzle.width; c++) {
-        if (getTargetLetter(r, c)) {
-          totalCells++;
-          if (grid[r] && grid[r][c] && grid[r][c] !== '') filledCells++;
-        }
+        if (getTargetLetter(r, c)) { total++; if (grid[r][c]) filled++; }
       }
     }
-    return { filled: filledCells, total: totalCells, percent: totalCells > 0 ? Math.round((filledCells / totalCells) * 100) : 0 };
+    return { filled, total, percent: total > 0 ? Math.round((filled / total) * 100) : 0 };
   })();
 
   const handleInput = (r, c, v) => {
@@ -214,7 +210,7 @@ const Player = ({ puzzle, onBack }) => {
         if (timerRef.current) clearInterval(timerRef.current);
         syncMyState(nextGrid, { r, c }, hintsRemaining, hintCells, true, timer);
     } else {
-        syncMyState(nextGrid, { r, c });
+        if (roomID !== "SOLO") syncMyState(nextGrid, { r, c });
         if (char) {
           const nR = dir === Direction.DOWN ? r + 1 : r, nC = dir === Direction.ACROSS ? c + 1 : c;
           if (getTargetLetter(nR, nC)) handleCellSelect(nR, nC);
@@ -225,7 +221,7 @@ const Player = ({ puzzle, onBack }) => {
   const handleCellSelect = (r, c) => {
     if (!isJoined || win) return;
     setCursor({ r, c });
-    syncMyState(grid, { r, c });
+    if (roomID !== "SOLO") syncMyState(grid, { r, c });
     const bAcross = puzzle.words.some(w => w.direction === Direction.ACROSS && w.row === r && c >= w.col && c < w.col + w.answer.length);
     const bDown = puzzle.words.some(w => w.direction === Direction.DOWN && w.col === c && r >= w.row && r < w.row + w.answer.length);
     if (bDown && !bAcross) setDir(Direction.DOWN);
@@ -261,7 +257,7 @@ const Player = ({ puzzle, onBack }) => {
     const nextHints = hintsRemaining - 1;
     const nextHintCells = new Set(hintCells).add(`${lucky.r}-${lucky.c}`);
     setGrid(nextGrid); setHintCells(nextHintCells); setHintsRemaining(nextHints); 
-    syncMyState(nextGrid, { r: lucky.r, c: lucky.c }, nextHints, nextHintCells);
+    if (roomID !== "SOLO") syncMyState(nextGrid, { r: lucky.r, c: lucky.c }, nextHints, nextHintCells);
   };
 
   const resetGrid = () => {
@@ -269,7 +265,7 @@ const Player = ({ puzzle, onBack }) => {
       const empty = Array.from({ length: puzzle.height }, () => Array(puzzle.width).fill(''));
       cellTimestamps.current.clear();
       setGrid(empty); setHintsRemaining(3); setHintCells(new Set());
-      syncMyState(empty, cursor, 3, new Set());
+      if (roomID !== "SOLO") syncMyState(empty, cursor, 3, new Set());
     }
   };
 
@@ -277,8 +273,6 @@ const Player = ({ puzzle, onBack }) => {
   const activeClue = puzzle.words.find(w => w.direction === dir && (dir === Direction.ACROSS ? (w.row === cursor.r && cursor.c >= w.col && cursor.c < w.col + w.answer.length) : (w.col === cursor.c && cursor.r >= w.row && cursor.r < w.row + w.answer.length)));
 
   return React.createElement('div', { className: 'w-full flex flex-col gap-4 animate-in fade-in duration-700 font-sans px-2 text-black dark:text-white transition-colors' }, [
-
-    // Modal Join
     !isJoined && React.createElement('div', { key: 'm', className: 'fixed inset-0 bg-black/90 z-[500] flex items-center justify-center p-6 backdrop-blur-md' },
       React.createElement('div', { className: 'bg-[#1e293b] p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center border border-gray-700' }, [
         React.createElement('h3', { className: 'text-2xl font-black mb-6 text-white uppercase' }, 'MULAI BERMAIN'),
@@ -287,8 +281,6 @@ const Player = ({ puzzle, onBack }) => {
         React.createElement('button', { onClick: () => { setRoomID("SOLO"); setIsJoined(true); }, className: 'w-full py-2 mt-2 text-gray-400 font-bold hover:text-white transition-colors' }, 'Main Sendirian (Solo)')
       ])
     ),
-
-    // Header
     React.createElement('div', { key: 'h', className: 'flex flex-wrap justify-between items-center gap-2 bg-white dark:bg-gray-800 p-3 card shadow-md border-black dark:border-gray-600 transition-colors' }, [
       React.createElement('div', null, [
         React.createElement('h2', { className: 'text-lg font-black uppercase' }, puzzle.title),
@@ -306,15 +298,10 @@ const Player = ({ puzzle, onBack }) => {
         React.createElement('button', { onClick: handleExitGame, className: 'px-3 py-1 bg-black text-white font-black text-[10px] card border-black hover:bg-gray-800' }, 'KELUAR')
       ])
     ]),
-
-    // Progress Bar
     React.createElement('div', { key: 'p', className: 'h-2.5 w-full bg-gray-200 dark:bg-gray-700 border border-black dark:border-gray-600 overflow-hidden rounded-full shadow-inner' },
       React.createElement('div', { className: 'h-full bg-blue-500 transition-all duration-500 shadow-md', style: { width: `${stats.percent}%` } })
     ),
-
-    // Main Content
     React.createElement('main', { key: 'main', className: 'w-full flex flex-col lg:flex-row gap-4 mb-20' }, [
-      // GRID AREA
       React.createElement('section', { className: 'w-full lg:flex-[2] bg-slate-200 dark:bg-slate-900/50 p-4 flex items-center justify-center overflow-auto custom-scrollbar border-2 border-black dark:border-gray-700 rounded-xl shadow-lg' }, 
         grid && grid.length > 0 && React.createElement('div', {
           className: 'bg-black dark:bg-slate-800 p-4 rounded-xl shadow-2xl relative mx-auto my-auto',
@@ -348,9 +335,7 @@ const Player = ({ puzzle, onBack }) => {
           ]);
         }))
       ),
-      // SIDEBAR
       React.createElement('aside', { className: 'w-full lg:flex-1 flex flex-col gap-3 min-h-[500px]' }, [
-        // LEADERBOARD GLOBAL
         React.createElement('div', { className: 'p-3 bg-yellow-50 dark:bg-gray-800/80 card border-black dark:border-yellow-900/50 transition-colors' }, [
           React.createElement('h4', { className: 'text-[10px] font-black uppercase text-yellow-800 dark:text-yellow-400 mb-2 flex items-center gap-1' }, '🏆 Rekor Tercepat (Global)'),
           leaderboard.length === 0 ? React.createElement('p', { className: 'text-[9px] italic opacity-50' }, 'Belum ada rekor...') :
@@ -359,19 +344,15 @@ const Player = ({ puzzle, onBack }) => {
             React.createElement('span', { className: 'text-blue-600 dark:text-blue-400 font-black' }, fmtTime(e.completion_time))
           ]))
         ]),
-
         React.createElement('div', { className: 'p-4 bg-white dark:bg-gray-800 card border-black dark:border-gray-600 border-l-4 border-l-blue-600 shadow-sm' }, [
           React.createElement('h4', { className: 'text-[9px] font-black opacity-60 uppercase text-blue-600 dark:text-blue-400' }, 'SEDANG DIISI'),
           React.createElement('p', { className: 'font-black text-[13px] leading-tight mt-1.5' }, activeClue ? `${activeClue.number}. ${activeClue.clue}` : 'Klik kotak untuk petunjuk')
         ]),
-
         React.createElement('div', { className: 'p-3 bg-blue-50 dark:bg-gray-800 card border-black dark:border-gray-600' }, [
           React.createElement('h4', { className: 'text-[10px] font-black uppercase mb-1 text-blue-900 dark:text-blue-400' }, '👥 Room Activity'),
           otherPlayers.length === 0 && React.createElement('p', { className: 'text-[9px] italic opacity-50' }, 'Hanya Anda di room ini'),
           otherPlayers.map(p => React.createElement('p', { key: p.id, className: 'text-[9px] font-black animate-pulse text-blue-700 dark:text-blue-300' }, `• ${p.id} sedang aktif`))
         ]),
-
-        // LIST CLUE
         React.createElement('div', { className: 'flex-1 overflow-y-auto space-y-3 p-1 custom-scrollbar border-t-2 border-black dark:border-gray-700 mt-2' }, 
           ['ACROSS', 'DOWN'].map(d => React.createElement('div', { key: d, className: 'bg-white dark:bg-gray-800/50 p-2 rounded border border-black/10 dark:border-gray-700' }, [
             React.createElement('h5', { className: 'text-[11px] font-black border-b border-black dark:border-gray-600 mb-2' }, d === 'ACROSS' ? 'MENDATAR' : 'MENURUN'),
@@ -385,7 +366,6 @@ const Player = ({ puzzle, onBack }) => {
         )
       ])
     ]),
-
     win && React.createElement('div', { className: 'fixed inset-0 bg-black/90 flex items-center justify-center z-[600] p-4 backdrop-blur-md' }, 
       React.createElement('div', { className: 'text-center p-8 card bg-white dark:bg-gray-800 border-black dark:border-white shadow-2xl animate-in zoom-in duration-300 max-w-xs w-full' }, [
         React.createElement('div', { className: 'text-5xl mb-4' }, '🎉'),

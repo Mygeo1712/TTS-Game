@@ -68,7 +68,7 @@ app.get('/api/puzzles/:id', async (req, res) => {
 
 // --- LOGIKA MULTIPLAYER SINKRON ---
 
-// Endpoint: Ambil state room (Shared Win & Hints)
+// Ambil state room (Shared Win & Hints)
 app.get('/api/puzzles/:id/room-state', async (req, res) => {
   const { id } = req.params;
   const { roomID } = req.query;
@@ -78,7 +78,6 @@ app.get('/api/puzzles/:id/room-state', async (req, res) => {
     let room = await db.query('SELECT * FROM public.puzzle_rooms WHERE room_id = $1 AND puzzle_id = $2', [roomID, id]);
 
     if (room.rows.length === 0) {
-      // Buat room baru jika belum ada
       room = await db.query(
         'INSERT INTO public.puzzle_rooms (room_id, puzzle_id, start_time, hints_remaining, hint_cells, is_won) VALUES ($1, $2, CURRENT_TIMESTAMP, 3, $3, FALSE) RETURNING *', 
         [roomID, id, JSON.stringify([])]
@@ -101,44 +100,46 @@ app.get('/api/puzzles/:id/room-state', async (req, res) => {
   }
 });
 
-// Endpoint: Sinkronisasi Grid, Cursor, dan Status Menang
+// Sinkronisasi Grid, Cursor, dan Status Menang (MENDUKUNG SOLO & MULTIPLAYER)
 app.post('/api/puzzles/:id/sync', async (req, res) => {
   const { roomID, playerId, grid, cursor, hintsRemaining, hintCells, isWin, finalTime } = req.body;
   const { id } = req.params;
-  if (!roomID || roomID === "SOLO") return res.sendStatus(200);
 
   try {
+    // 1. Jika Status Menang: Simpan ke Leaderboard (Berlaku untuk SEMUA mode)
     if (isWin) {
-      // 1. Masukkan ke Leaderboard
       await db.query(
         'INSERT INTO public.leaderboard (puzzle_id, player_id, completion_time) VALUES ($1, $2, $3)',
         [id, playerId, finalTime]
       );
-
-      // 2. Tandai Room sebagai Selesai (Agar player lain melihat modal win)
-      // Jangan langsung DELETE agar player lain sempat polling status is_won: true
-      await db.query(
-        'UPDATE public.puzzle_rooms SET global_grid = $1, is_won = TRUE, winner_id = $2 WHERE room_id = $3 AND puzzle_id = $4',
-        [JSON.stringify(grid), playerId, roomID, id]
-      );
-      
-      console.log(`🏆 Player ${playerId} memenangkan Room ${roomID}.`);
-    } else {
-      // Update progres rutin
-      await db.query(
-        'UPDATE public.puzzle_rooms SET global_grid = $1, hints_remaining = $2, hint_cells = $3 WHERE room_id = $4 AND puzzle_id = $5 AND is_won = FALSE',
-        [JSON.stringify(grid), hintsRemaining, JSON.stringify(hintCells), roomID, id]
-      );
+      console.log(`🏆 Rekor baru disimpan untuk ${playerId} (${roomID}) dengan waktu ${finalTime}s`);
     }
 
-    // Update posisi kursor pemain
-    await db.query(`
-      INSERT INTO public.room_players (room_id, player_id, last_cursor, last_active) 
-      VALUES ($1, $2, $3, NOW()) 
-      ON CONFLICT (room_id, player_id) 
-      DO UPDATE SET last_cursor = $3, last_active = NOW()`,
-      [roomID, playerId, JSON.stringify(cursor)]
-    );
+    // 2. Jika mode Multiplayer: Lakukan sinkronisasi room
+    if (roomID && roomID !== "SOLO") {
+      if (isWin) {
+        // Tandai Room sebagai Selesai
+        await db.query(
+          'UPDATE public.puzzle_rooms SET global_grid = $1, is_won = TRUE, winner_id = $2 WHERE room_id = $3 AND puzzle_id = $4',
+          [JSON.stringify(grid), playerId, roomID, id]
+        );
+      } else {
+        // Update progres rutin multiplayer
+        await db.query(
+          'UPDATE public.puzzle_rooms SET global_grid = $1, hints_remaining = $2, hint_cells = $3 WHERE room_id = $4 AND puzzle_id = $5 AND is_won = FALSE',
+          [JSON.stringify(grid), hintsRemaining, JSON.stringify(hintCells), roomID, id]
+        );
+      }
+
+      // Update posisi kursor pemain aktif (Hanya Multiplayer)
+      await db.query(`
+        INSERT INTO public.room_players (room_id, player_id, last_cursor, last_active) 
+        VALUES ($1, $2, $3, NOW()) 
+        ON CONFLICT (room_id, player_id) 
+        DO UPDATE SET last_cursor = $3, last_active = NOW()`,
+        [roomID, playerId, JSON.stringify(cursor)]
+      );
+    }
 
     res.sendStatus(200);
   } catch (err) {
@@ -147,7 +148,7 @@ app.post('/api/puzzles/:id/sync', async (req, res) => {
   }
 });
 
-// server.js - Ambil 5 rekor tercepat global
+// Ambil 5 rekor tercepat global
 app.get('/api/leaderboard/:puzzleId', async (req, res) => {
   try {
     const { puzzleId } = req.params;
@@ -162,24 +163,21 @@ app.get('/api/leaderboard/:puzzleId', async (req, res) => {
   }
 });
 
-// Endpoint: Meninggalkan Room & Hapus Room Jika Kosong (Final Cleanup)
+// Meninggalkan Room & Hapus Room Jika Kosong
 app.post('/api/puzzles/:id/leave', async (req, res) => {
   const { roomID, playerId } = req.body;
   const { id } = req.params;
 
+  if (!roomID || roomID === "SOLO") return res.sendStatus(200);
+
   try {
-    // Hapus player dari daftar aktif
     await db.query('DELETE FROM public.room_players WHERE room_id = $1 AND player_id = $2', [roomID, playerId]);
-    
-    // Cek apakah masih ada player lain di room tersebut
     const checkPlayers = await db.query('SELECT COUNT(*) FROM public.room_players WHERE room_id = $1', [roomID]);
     
-    // Jika room kosong, hapus room secara permanen agar ID bisa dipakai ulang
     if (parseInt(checkPlayers.rows[0].count) === 0) {
       await db.query('DELETE FROM public.puzzle_rooms WHERE room_id = $1', [roomID]);
-      console.log(`🧹 Room ${roomID} kosong dan telah dihapus.`);
+      console.log(`🧹 Room ${roomID} telah dibersihkan.`);
     }
-    
     res.sendStatus(200);
   } catch (err) {
     res.status(500).json({ error: err.message });
