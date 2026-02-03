@@ -91,44 +91,39 @@ const App = () => {
     } catch (e) { alert("Error simpan"); }
   };
 
-  return React.createElement('div', {
-    className: `min-h-screen pb-20 transition-colors duration-500 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-black'}`
+  return React.createElement('div', { 
+    className: `min-h-screen pb-20 transition-colors duration-500 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-black'}` 
   }, [
-    React.createElement('nav', {
-      key: 'nav',
-      className: 'bg-white dark:bg-gray-800 border-b-2 border-black dark:border-white sticky top-0 z-50 px-4 py-3'
+    React.createElement('nav', { 
+      key: 'nav', 
+      className: 'bg-white dark:bg-gray-800 border-b-2 border-black dark:border-white sticky top-0 z-50 px-4 py-3' 
     },
       React.createElement('div', { className: 'max-w-5xl mx-auto flex justify-between items-center' }, [
-        React.createElement('h1', {
-          key: 'l',
-          // Laptop: Putih, HP: Hitam
-          className: 'text-xl font-black cursor-pointer text-black lg:text-white dark:lg:text-white',
-          onClick: () => window.location.hash = ''
+        // PERBAIKAN 1: Menambahkan 'dark:text-white' agar di laptop teks terlihat saat bg navigasi jadi hitam
+        React.createElement('h1', { 
+          key: 'l', 
+          className: 'text-xl font-black cursor-pointer text-black dark:text-white', 
+          onClick: () => window.location.hash = '' 
         }, 'TTS MASTER'),
         React.createElement('div', { className: 'flex gap-2' }, [
-          React.createElement('button', {
-            onClick: () => setDarkMode(!darkMode),
-            className: 'p-1.5 border-2 border-black dark:border-white rounded-md hover:bg-yellow-400 transition-all text-black dark:text-white'
+          React.createElement('button', { 
+            onClick: () => setDarkMode(!darkMode), 
+            className: 'p-1.5 border-2 border-black dark:border-white rounded-md hover:bg-yellow-400 transition-all text-black dark:text-white' 
           }, darkMode ? '☀️' : '🌙'),
-          React.createElement('button', {
+          React.createElement('button', { 
             onClick: handleAdminAccess,
-            className: 'bg-black text-white dark:bg-white dark:text-black px-4 py-1.5 font-bold text-xs card shadow-md border-black dark:border-white'
+            className: 'bg-black text-white dark:bg-white dark:text-black px-4 py-1.5 font-bold text-xs card shadow-md' 
           }, 'BUAT TTS')
         ])
       ])
     ),
     React.createElement('main', { key: 'main', className: 'max-w-5xl mx-auto px-4 mt-10' }, [
-      loading && React.createElement('p', { key: 'ld', className: 'text-center font-bold animate-pulse text-black dark:text-white' }, 'MEMUAT...'),
-
+      loading && React.createElement('p', { key: 'ld', className: 'text-center font-bold animate-pulse' }, 'MEMUAT...'),
+      
       !loading && view === 'Home' && React.createElement('div', { key: 'h', className: 'animate-in fade-in slide-in-from-bottom-2 duration-500' }, [
         React.createElement('div', { className: 'flex justify-between items-center mb-10' }, [
           React.createElement('div', null, [
-            // --- JUDUL UTAMA: PILIH TEKA-TEKI ---
-            
-            React.createElement('h2', {
-              className: `text-4xl font-black mb-2 transition-colors duration-300 ${darkMode ? 'text-white' : 'text-black'
-                }`
-            }, 'Pilih Teka-Teki'),
+            React.createElement('h2', { className: 'text-4xl font-black' }, 'Pilih Teka-Teki'),
             React.createElement('p', { className: 'text-gray-500 dark:text-gray-400 font-medium mt-1' }, 'Tantang dirimu dengan berbagai koleksi TTS Master.')
           ]),
         ]),
@@ -136,34 +131,31 @@ const App = () => {
         puzzles.length === 0 ?
           React.createElement('div', { className: 'flex flex-col items-center justify-center py-20 bg-white dark:bg-gray-800 border-4 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl' }, [
             React.createElement('div', { className: 'text-6xl mb-4' }, '🧩'),
-            React.createElement('h3', { className: 'text-xl font-bold text-gray-400 dark:text-gray-500' }, 'Belum ada teka-teki yang dibuat'),
+            React.createElement('h3', { className: 'text-xl font-bold text-gray-400' }, 'Belum ada teka-teki yang dibuat'),
             React.createElement('button', {
               onClick: handleAdminAccess,
-              className: 'mt-6 bg-black text-white dark:bg-white dark:text-black px-8 py-3 font-black card border-black dark:border-white'
+              className: 'mt-6 bg-black text-white dark:bg-white dark:text-black px-8 py-3 font-black card transition-transform active:scale-95'
             }, 'MULAI BUAT SEKARANG')
           ])
           :
           React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8' },
-            puzzles.map(p => React.createElement('div', {
-              key: p.id,
-              className: 'p-6 bg-white dark:bg-gray-800 card group hover:border-blue-600 transition-all hover:-translate-y-1 border-2 border-black dark:border-white shadow-lg'
+            puzzles.map(p => React.createElement('div', { 
+              key: p.id, 
+              className: 'p-6 bg-white dark:bg-gray-800 card group hover:border-blue-600 transition-all hover:-translate-y-1 border-2 border-black dark:border-gray-700' 
             }, [
               React.createElement('div', { className: 'flex justify-between items-start mb-4' }, [
-                React.createElement('span', { className: 'px-2 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-100 text-[10px] font-black uppercase' }, p.difficulty || 'Medium'),
-                React.createElement('span', { className: 'text-gray-400 dark:text-gray-500 font-bold text-xs' }, `#${p.id}`)
+                React.createElement('span', { className: 'px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 text-[10px] font-black uppercase rounded' }, p.difficulty || 'Medium'),
+                React.createElement('span', { className: 'text-gray-400 font-bold text-xs' }, `#${p.id}`)
               ]),
-              // --- JUDUL PADA SETIAP GAME TTS ---
-              // Terang: Hitam (text-black), Gelap: Putih (dark:text-white)
-              React.createElement('h3', {
-                className: 'text-2xl font-black mb-6 leading-tight group-hover:text-blue-600 text-black dark:text-white'
-              }, p.title),
-              React.createElement('div', { className: 'flex items-center gap-4 mb-6 text-xs font-bold text-gray-500 dark:text-gray-400' }, [
+              // PERBAIKAN 2: Pastikan judul menggunakan 'text-black dark:text-white' agar tidak bertabrakan dengan latar kartu
+              React.createElement('h3', { className: 'text-2xl font-black mb-6 leading-tight group-hover:text-blue-600 text-black dark:text-white' }, p.title),
+              React.createElement('div', { className: 'flex items-center gap-4 mb-6 text-xs font-bold text-gray-400 dark:text-gray-500' }, [
                 React.createElement('span', null, `📏 ${p.width}x${p.height}`),
                 React.createElement('span', null, `📅 ${new Date(p.created_at).toLocaleDateString('id-ID')}`)
               ]),
               React.createElement('button', {
                 onClick: () => window.location.hash = `play/${p.id}`,
-                className: 'w-full py-3 bg-black text-white dark:bg-white dark:text-black font-black text-sm uppercase card border-black dark:border-white group-hover:bg-blue-600 transition-colors'
+                className: 'w-full py-3 bg-black text-white dark:bg-white dark:text-black font-black text-sm uppercase card group-hover:bg-blue-600 transition-colors'
               }, 'Mainkan Sekarang')
             ]))
           )

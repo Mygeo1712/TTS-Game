@@ -18,29 +18,23 @@ app.get('/api/puzzles', async (req, res) => {
   }
 });
 
-// 2. Endpoint: Simpan Puzzle Baru (PERBAIKAN: Menambahkan POST route yang hilang)
+// 2. Endpoint: Simpan Puzzle Baru
 app.post('/api/puzzles', async (req, res) => {
   const { title, width, height, difficulty, placed } = req.body;
-  
   try {
-    // Mulai Transaksi Database
     await db.query('BEGIN');
-
-    // Simpan ke tabel puzzles
     const puzzleResult = await db.query(
       'INSERT INTO public.puzzles (title, width, height, difficulty) VALUES ($1, $2, $3, $4) RETURNING id',
       [title, width, height, difficulty]
     );
     const puzzleId = puzzleResult.rows[0].id;
 
-    // Simpan kata-kata ke tabel puzzle_words
     for (const word of placed) {
       await db.query(
         'INSERT INTO public.puzzle_words (puzzle_id, answer, clue, row_pos, col_pos, direction, word_number) VALUES ($1, $2, $3, $4, $5, $6, $7)',
         [puzzleId, word.answer, word.clue, word.row, word.col, word.direction, word.number]
       );
     }
-
     await db.query('COMMIT');
     res.status(201).json({ id: puzzleId });
   } catch (err) {
@@ -74,23 +68,32 @@ app.get('/api/puzzles/:id', async (req, res) => {
 
 // --- LOGIKA MULTIPLAYER SINKRON ---
 
+// Endpoint: Ambil state room (Shared Win & Hints)
 app.get('/api/puzzles/:id/room-state', async (req, res) => {
   const { id } = req.params;
   const { roomID } = req.query;
   if (!roomID || roomID === "SOLO") return res.json({ solo: true });
 
   try {
-    let room = await db.query('SELECT start_time, global_grid FROM public.puzzle_rooms WHERE room_id = $1 AND puzzle_id = $2', [roomID, id]);
-    
+    let room = await db.query('SELECT * FROM public.puzzle_rooms WHERE room_id = $1 AND puzzle_id = $2', [roomID, id]);
+
     if (room.rows.length === 0) {
-      room = await db.query('INSERT INTO public.puzzle_rooms (room_id, puzzle_id, start_time) VALUES ($1, $2, NOW()) RETURNING *', [roomID, id]);
+      // Buat room baru jika belum ada
+      room = await db.query(
+        'INSERT INTO public.puzzle_rooms (room_id, puzzle_id, start_time, hints_remaining, hint_cells, is_won) VALUES ($1, $2, CURRENT_TIMESTAMP, 3, $3, FALSE) RETURNING *', 
+        [roomID, id, JSON.stringify([])]
+      );
     }
-    
+
     const players = await db.query("SELECT player_id as id, last_cursor as cursor FROM public.room_players WHERE room_id = $1 AND last_active > NOW() - INTERVAL '10 seconds'", [roomID]);
-    
+
     res.json({
       startTime: room.rows[0].start_time,
       globalGrid: room.rows[0].global_grid,
+      hintsRemaining: room.rows[0].hints_remaining,
+      hintCells: room.rows[0].hint_cells,
+      isWon: room.rows[0].is_won,
+      winnerId: room.rows[0].winner_id,
       activePlayers: players.rows
     });
   } catch (err) { 
@@ -98,27 +101,81 @@ app.get('/api/puzzles/:id/room-state', async (req, res) => {
   }
 });
 
+// Endpoint: Sinkronisasi Grid, Cursor, dan Status Menang
 app.post('/api/puzzles/:id/sync', async (req, res) => {
-  const { roomID, playerId, grid, cursor } = req.body;
+  const { roomID, playerId, grid, cursor, hintsRemaining, hintCells, isWin, finalTime } = req.body;
   const { id } = req.params;
   if (!roomID || roomID === "SOLO") return res.sendStatus(200);
 
   try {
-    await db.query('UPDATE public.puzzle_rooms SET global_grid = $1 WHERE room_id = $2 AND puzzle_id = $3', [JSON.stringify(grid), roomID, id]);
-    await db.query(`INSERT INTO public.room_players (room_id, player_id, last_cursor, last_active) VALUES ($1, $2, $3, NOW()) 
-                    ON CONFLICT (room_id, player_id) DO UPDATE SET last_cursor = $3, last_active = NOW()`, [roomID, playerId, JSON.stringify(cursor)]);
+    if (isWin) {
+      // 1. Masukkan ke Leaderboard
+      await db.query(
+        'INSERT INTO public.leaderboard (puzzle_id, player_id, completion_time) VALUES ($1, $2, $3)',
+        [id, playerId, finalTime]
+      );
+
+      // 2. Tandai Room sebagai Selesai (Agar player lain melihat modal win)
+      // Jangan langsung DELETE agar player lain sempat polling status is_won: true
+      await db.query(
+        'UPDATE public.puzzle_rooms SET global_grid = $1, is_won = TRUE, winner_id = $2 WHERE room_id = $3 AND puzzle_id = $4',
+        [JSON.stringify(grid), playerId, roomID, id]
+      );
+      
+      console.log(`🏆 Player ${playerId} memenangkan Room ${roomID}.`);
+    } else {
+      // Update progres rutin
+      await db.query(
+        'UPDATE public.puzzle_rooms SET global_grid = $1, hints_remaining = $2, hint_cells = $3 WHERE room_id = $4 AND puzzle_id = $5 AND is_won = FALSE',
+        [JSON.stringify(grid), hintsRemaining, JSON.stringify(hintCells), roomID, id]
+      );
+    }
+
+    // Update posisi kursor pemain
+    await db.query(`
+      INSERT INTO public.room_players (room_id, player_id, last_cursor, last_active) 
+      VALUES ($1, $2, $3, NOW()) 
+      ON CONFLICT (room_id, player_id) 
+      DO UPDATE SET last_cursor = $3, last_active = NOW()`,
+      [roomID, playerId, JSON.stringify(cursor)]
+    );
+
     res.sendStatus(200);
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
+  } catch (err) {
+    console.error("Sync Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint: Meninggalkan Room & Hapus Room Jika Kosong (Final Cleanup)
+app.post('/api/puzzles/:id/leave', async (req, res) => {
+  const { roomID, playerId } = req.body;
+  const { id } = req.params;
+
+  try {
+    // Hapus player dari daftar aktif
+    await db.query('DELETE FROM public.room_players WHERE room_id = $1 AND player_id = $2', [roomID, playerId]);
+    
+    // Cek apakah masih ada player lain di room tersebut
+    const checkPlayers = await db.query('SELECT COUNT(*) FROM public.room_players WHERE room_id = $1', [roomID]);
+    
+    // Jika room kosong, hapus room secara permanen agar ID bisa dipakai ulang
+    if (parseInt(checkPlayers.rows[0].count) === 0) {
+      await db.query('DELETE FROM public.puzzle_rooms WHERE room_id = $1', [roomID]);
+      console.log(`🧹 Room ${roomID} kosong dan telah dihapus.`);
+    }
+    
+    res.sendStatus(200);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.get(/.*/, (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server berjalan di port: ${PORT}`);
 });
