@@ -147,6 +147,21 @@ app.post('/api/puzzles/:id/sync', async (req, res) => {
   }
 });
 
+// server.js - Ambil 5 rekor tercepat global
+app.get('/api/leaderboard/:puzzleId', async (req, res) => {
+  try {
+    const { puzzleId } = req.params;
+    const result = await db.query(
+      'SELECT player_id, completion_time, completion_date FROM public.leaderboard WHERE puzzle_id = $1 ORDER BY completion_time ASC LIMIT 5',
+      [puzzleId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Leaderboard GET Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Endpoint: Meninggalkan Room & Hapus Room Jika Kosong (Final Cleanup)
 app.post('/api/puzzles/:id/leave', async (req, res) => {
   const { roomID, playerId } = req.body;

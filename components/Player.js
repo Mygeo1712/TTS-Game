@@ -31,7 +31,7 @@ const Player = ({ puzzle, onBack }) => {
   const hasLoadedFromServer = useRef(false);
 
   // 1. Fungsi Sinkronisasi
-  const syncMyState = async (updatedGrid, currentCursor, updatedHints, updatedHintCells, isWinTrigger = false) => {
+  const syncMyState = async (updatedGrid, currentCursor, updatedHints, updatedHintCells, isWinTrigger = false, finalTimeVal = null) => {
     if (!puzzle?.id || !isJoined || roomID === "SOLO") return;
     if (!hasLoadedFromServer.current && !isWinTrigger) return;
 
@@ -43,14 +43,15 @@ const Player = ({ puzzle, onBack }) => {
           hintsRemaining: updatedHints !== undefined ? updatedHints : hintsRemaining,
           hintCells: updatedHintCells !== undefined ? Array.from(updatedHintCells) : Array.from(hintCells),
           isWin: isWinTrigger,
-          finalTime: isWinTrigger ? timer : null
+          finalTime: isWinTrigger ? (finalTimeVal || timer) : null
         })
       });
     } catch (e) { console.error("Sync error:", e.message); }
   };
 
-  // Fungsi Ambil Leaderboard Global dari DB
+  // 2. Ambil Leaderboard Global dari DB
   const fetchGlobalLeaderboard = async () => {
+    if (!puzzle?.id) return;
     try {
       const res = await fetch(`${API_BASE}/api/leaderboard/${puzzle.id}`);
       if (res.ok) {
@@ -73,19 +74,21 @@ const Player = ({ puzzle, onBack }) => {
     onBack();
   };
 
-  // 2. Loop Polling
+  // 3. Loop Polling (Update Global State & Menang Bersama)
   useEffect(() => {
     if (!puzzle || win || !isJoined || roomID === "SOLO") return;
 
     const fetchRoomState = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/puzzles/${puzzle.id}/room-state?roomID=${roomID}`, { mode: 'cors' });
+        
         if (res.status === 404) {
           setWin(true);
           if (timerRef.current) clearInterval(timerRef.current);
           fetchGlobalLeaderboard();
           return;
         }
+
         if (!res.ok) return;
         const data = await res.json();
 
@@ -131,7 +134,7 @@ const Player = ({ puzzle, onBack }) => {
     return () => clearInterval(interval);
   }, [puzzle, win, isJoined, roomID]);
 
-  // 3. Inisialisasi
+  // 4. Inisialisasi
   useEffect(() => {
     if (!puzzle || !isJoined) return;
     setWin(false); setTimer(0); setHintsRemaining(3); setHintCells(new Set());
@@ -152,9 +155,11 @@ const Player = ({ puzzle, onBack }) => {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [puzzle, isJoined, roomID]);
 
+  // Handle Fokus Input Otomatis
   useEffect(() => {
     if (!isJoined || win) return;
-    inputRefs.current.get(`${cursor.r}-${cursor.c}`)?.focus();
+    const targetEl = inputRefs.current.get(`${cursor.r}-${cursor.c}`);
+    if (targetEl) targetEl.focus();
   }, [cursor, isJoined, win]);
 
   // --- LOGIKA GAMEPLAY ---
@@ -177,19 +182,22 @@ const Player = ({ puzzle, onBack }) => {
     if (checkIsWin(grid)) {
       setWin(true);
       if (timerRef.current) clearInterval(timerRef.current);
-      syncMyState(grid, cursor, hintsRemaining, hintCells, true);
+      syncMyState(grid, cursor, hintsRemaining, hintCells, true, timer);
     }
   };
 
   const stats = (() => {
     if (!puzzle || !grid || grid.length === 0) return { filled: 0, total: 0, percent: 0 };
-    let total = 0, filled = 0;
+    let totalCells = 0, filledCells = 0;
     for (let r = 0; r < puzzle.height; r++) {
       for (let c = 0; c < puzzle.width; c++) {
-        if (getTargetLetter(r, c)) { total++; if (grid[r]?.[c]) filled++; }
+        if (getTargetLetter(r, c)) {
+          totalCells++;
+          if (grid[r] && grid[r][c] && grid[r][c] !== '') filledCells++;
+        }
       }
     }
-    return { filled, total, percent: total > 0 ? Math.round((filled / total) * 100) : 0 };
+    return { filled: filledCells, total: totalCells, percent: totalCells > 0 ? Math.round((filledCells / totalCells) * 100) : 0 };
   })();
 
   const handleInput = (r, c, v) => {
@@ -204,7 +212,7 @@ const Player = ({ puzzle, onBack }) => {
     if (checkIsWin(nextGrid)) {
         setWin(true);
         if (timerRef.current) clearInterval(timerRef.current);
-        syncMyState(nextGrid, { r, c }, hintsRemaining, hintCells, true);
+        syncMyState(nextGrid, { r, c }, hintsRemaining, hintCells, true, timer);
     } else {
         syncMyState(nextGrid, { r, c });
         if (char) {
@@ -244,7 +252,7 @@ const Player = ({ puzzle, onBack }) => {
     const empty = [];
     for(let r=0; r<puzzle.height; r++) for(let c=0; c<puzzle.width; c++) {
         const target = getTargetLetter(r, c);
-        if (target && grid[r][c] !== target) empty.push({r, c, char: target});
+        if (target && (!grid[r] || grid[r][c] !== target)) empty.push({r, c, char: target});
     }
     if (empty.length === 0) return;
     const lucky = empty[Math.floor(Math.random() * empty.length)];
@@ -268,8 +276,9 @@ const Player = ({ puzzle, onBack }) => {
   const fmtTime = (s) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
   const activeClue = puzzle.words.find(w => w.direction === dir && (dir === Direction.ACROSS ? (w.row === cursor.r && cursor.c >= w.col && cursor.c < w.col + w.answer.length) : (w.col === cursor.c && cursor.r >= w.row && cursor.r < w.row + w.answer.length)));
 
-  return React.createElement('div', { className: 'w-full flex flex-col gap-4 animate-in fade-in duration-700 font-sans px-2 text-black dark:text-white' }, [
+  return React.createElement('div', { className: 'w-full flex flex-col gap-4 animate-in fade-in duration-700 font-sans px-2 text-black dark:text-white transition-colors' }, [
 
+    // Modal Join
     !isJoined && React.createElement('div', { key: 'm', className: 'fixed inset-0 bg-black/90 z-[500] flex items-center justify-center p-6 backdrop-blur-md' },
       React.createElement('div', { className: 'bg-[#1e293b] p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center border border-gray-700' }, [
         React.createElement('h3', { className: 'text-2xl font-black mb-6 text-white uppercase' }, 'MULAI BERMAIN'),
@@ -279,6 +288,7 @@ const Player = ({ puzzle, onBack }) => {
       ])
     ),
 
+    // Header
     React.createElement('div', { key: 'h', className: 'flex flex-wrap justify-between items-center gap-2 bg-white dark:bg-gray-800 p-3 card shadow-md border-black dark:border-gray-600 transition-colors' }, [
       React.createElement('div', null, [
         React.createElement('h2', { className: 'text-lg font-black uppercase' }, puzzle.title),
@@ -291,17 +301,20 @@ const Player = ({ puzzle, onBack }) => {
       React.createElement('div', { className: 'flex gap-1.5' }, [
         React.createElement('button', { onClick: () => window.print(), className: 'px-3 py-1 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-bold text-[10px] card border-black' }, '📑 PDF'),
         React.createElement('button', { onClick: useHint, disabled: hintsRemaining <= 0 || win, className: `px-3 py-1 font-black text-[10px] card border-black ${hintsRemaining > 0 && !win ? 'bg-yellow-400 text-black' : 'bg-gray-300 text-gray-500'}` }, `HINT (${hintsRemaining})`),
-        React.createElement('button', { onClick: handleCheck, disabled: win, className: 'px-3 py-1 bg-green-500 text-white font-black text-[10px] card border-black' }, 'CHECK'),
-        React.createElement('button', { onClick: resetGrid, disabled: win, className: 'px-3 py-1 bg-red-500 text-white font-black text-[10px] card border-black' }, 'RESET'),
-        React.createElement('button', { onClick: handleExitGame, className: 'px-3 py-1 bg-black text-white font-black text-[10px] card border-black' }, 'KELUAR')
+        React.createElement('button', { onClick: handleCheck, disabled: win, className: 'px-3 py-1 bg-green-500 text-white font-black text-[10px] card border-black hover:bg-green-600' }, 'CHECK'),
+        React.createElement('button', { onClick: resetGrid, disabled: win, className: 'px-3 py-1 bg-red-500 text-white font-black text-[10px] card border-black hover:bg-red-600' }, 'RESET'),
+        React.createElement('button', { onClick: handleExitGame, className: 'px-3 py-1 bg-black text-white font-black text-[10px] card border-black hover:bg-gray-800' }, 'KELUAR')
       ])
     ]),
 
+    // Progress Bar
     React.createElement('div', { key: 'p', className: 'h-2.5 w-full bg-gray-200 dark:bg-gray-700 border border-black dark:border-gray-600 overflow-hidden rounded-full shadow-inner' },
       React.createElement('div', { className: 'h-full bg-blue-500 transition-all duration-500 shadow-md', style: { width: `${stats.percent}%` } })
     ),
 
+    // Main Content
     React.createElement('main', { key: 'main', className: 'w-full flex flex-col lg:flex-row gap-4 mb-20' }, [
+      // GRID AREA
       React.createElement('section', { className: 'w-full lg:flex-[2] bg-slate-200 dark:bg-slate-900/50 p-4 flex items-center justify-center overflow-auto custom-scrollbar border-2 border-black dark:border-gray-700 rounded-xl shadow-lg' }, 
         grid && grid.length > 0 && React.createElement('div', {
           className: 'bg-black dark:bg-slate-800 p-4 rounded-xl shadow-2xl relative mx-auto my-auto',
@@ -335,15 +348,15 @@ const Player = ({ puzzle, onBack }) => {
           ]);
         }))
       ),
+      // SIDEBAR
       React.createElement('aside', { className: 'w-full lg:flex-1 flex flex-col gap-3 min-h-[500px]' }, [
-        
-        // LEADERBOARD GLOBAL DARI DATABASE
+        // LEADERBOARD GLOBAL
         React.createElement('div', { className: 'p-3 bg-yellow-50 dark:bg-gray-800/80 card border-black dark:border-yellow-900/50 transition-colors' }, [
           React.createElement('h4', { className: 'text-[10px] font-black uppercase text-yellow-800 dark:text-yellow-400 mb-2 flex items-center gap-1' }, '🏆 Rekor Tercepat (Global)'),
           leaderboard.length === 0 ? React.createElement('p', { className: 'text-[9px] italic opacity-50' }, 'Belum ada rekor...') :
           leaderboard.map((e, idx) => React.createElement('div', { key: idx, className: 'flex justify-between text-[10px] font-bold border-b border-yellow-200 dark:border-gray-700 py-1 last:border-0' }, [
             React.createElement('span', null, `${idx + 1}. ${e.player_id || 'Anonim'}`), 
-            React.createElement('span', { className: 'text-blue-600 dark:text-blue-400' }, fmtTime(e.completion_time))
+            React.createElement('span', { className: 'text-blue-600 dark:text-blue-400 font-black' }, fmtTime(e.completion_time))
           ]))
         ]),
 
