@@ -6,6 +6,7 @@ Aplikasi Fullstack Teka-Teki Silang (TTS) interaktif yang memungkinkan pengguna 
 ## 🚀 Live Demo & Repository
 * **Live App:** [https://tts-game-production.up.railway.app/](https://tts-game-production.up.railway.app/)
 * **GitHub Repository:** [https://github.com/Mygeo1712/TTS-Game](https://github.com/Mygeo1712/TTS-Game)
+* **Video Demo:** [https://drive.google.com/file/d/1mn3gjF3i_qUPagBw_1Z8ZOFHsgGD1G8Y/view](https://drive.google.com/file/d/1mn3gjF3i_qUPagBw_1Z8ZOFHsgGD1G8Y/view)
 
 ---
 
@@ -22,6 +23,8 @@ Aplikasi Fullstack Teka-Teki Silang (TTS) interaktif yang memungkinkan pengguna 
 * **Automatic Grid Generator:** Algoritma cerdas yang menyusun kata-kata input menjadi grid TTS yang optimal.
 * **Admin / Creator Panel:** Fitur untuk input kata & petunjuk, generate grid, dan simpan ke database secara langsung.
 * **Real-time Multiplayer Sync:** Sinkronisasi progres jawaban dan posisi kursor antar pemain dalam satu room menggunakan sistem polling.
+* **Global Shared Win System:** Jika satu pemain berhasil menyelesaikan teka-teki, seluruh pemain dalam room tersebut akan mendapatkan notifikasi kemenangan yang sama secara bersamaan, dan timer akan berhenti otomatis.
+* **Global Leaderboard:** Menampilkan 5 rekor waktu tercepat per teka-teki yang mencatat hasil dari mode SOLO maupun Multiplayer langsung dari database.
 * **Sistem Hint & Check:** Bantuan kuota hint untuk membuka huruf dan fitur validasi jawaban benar/salah.
 * **Leaderboard & Timer:** Mencatat rekor waktu tercepat penyelesaian puzzle menggunakan localStorage.
 * **Responsive TTS Grid:** Tampilan grid yang adaptif mengecil secara otomatis di layar mobile.
@@ -53,7 +56,7 @@ Algoritma utama dalam `generator.js` bekerja dengan prinsip **Iterative Fitting*
 
 ## ⚠️ Masalah & Solusi
 1. **Masalah Koneksi Database (IPv6 vs IPv4)**
-* **Masalah:**Error `ENETUNREACH` saat deployment karena ketidakcocokan protokol IPv6 di infrastruktur hosting.
+* **Masalah:** Error `ENETUNREACH` saat deployment karena ketidakcocokan protokol IPv6 di infrastruktur hosting.
 * **Solusi:** Mengimplementasikan **Supabase Connection Pooler** pada port `6543` dan menggunakan konfigurasi `ssl: { rejectUnauthorized: false }` pada file `db.js` untuk memaksa koneksi via **IPv4**.
 
 2. **Isu "ID Room Nyangkut" & Sinkronisasi Kemenangan**
